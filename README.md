@@ -1,4 +1,4 @@
-# tmaxhoc-service-mon
+# tmaxhoc-mon
 
 "tmaxhoc" is a pseudo-portmanteau between _tmux_ and _adhoc_, with this project being an adhoc service monitor/manager panel based on tmux. For when systemd unit is too clean (e.g. if you need some kind of PTY access) or when docker is too much work. Original intent is to be used with game servers, like that of Minecraft or Don't Starve Together.
 
