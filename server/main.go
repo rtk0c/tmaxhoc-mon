@@ -36,6 +36,7 @@ func httpHandler(w http.ResponseWriter, req *http.Request) {
 <!DOCTYPE html><html>
 <head>
 <title>tmaxhoc</title>
+<link rel="stylesheet" href="/static/css/main.css">
 </head>
 <body>`)
 

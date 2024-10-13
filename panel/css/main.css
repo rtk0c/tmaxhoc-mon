@@ -1,0 +1,15 @@
+.unit-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5em;
+}
+
+.unit {
+    border: 1.5px solid black;
+    border-radius: 8px;
+    padding: 0.5em;
+    width: 200px;
+}
+.unit-name {
+    font-size: 1.3em;
+}
