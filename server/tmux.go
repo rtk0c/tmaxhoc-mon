@@ -8,24 +8,16 @@ import (
 )
 
 type TmuxSession struct {
-	Name     string
-	services []*TmuxService
+	Name       string
+	procGroups []*TmuxProcGroup
 }
 
-type ServiceStatus int
-
-const (
-	SS_Stopped ServiceStatus = iota
-	SS_Running
-)
-
-type TmuxService struct {
+type TmuxProcGroup struct {
 	Name        string
 	WindowIndex int
 	Pid         int
-	Status      ServiceStatus
-	// TODO wtf is this when I wrote it?
-	//ServiceClass string
+	// If true, this process has exited and will be removed on the next call to [TmuxSession.Prune]
+	Dead bool
 }
 
 var TmuxExecutable = "/bin/tmux"
@@ -41,14 +33,16 @@ func NewTmuxSession(session string) (*TmuxSession, error) {
 	return &TmuxSession{Name: session}, nil
 }
 
-// window: an arbitary window name for running the service, uniquely identifying the service
-// command_parts: see tmux *shell_command* a full shell command for starting the service.
+// windowName is an arbitary tmux window name for running the processes in.
 //
-//	For an abbreviated example: `miniserve -p 1234` results in `/bin/sh -c 'miniserv -p 1234'`,
-//	whereas `miniserve` `-p` `1234` results in running miniserve directly with the arguments.
-func (session *TmuxSession) SpawnService(window string, command_parts ...string) (*TmuxService, error) {
-	cmd_arglist := []string{"new-window", "-t", session.Name + ":", "-n", window, "-P", "-F", "#{window_index}:#{pane_pid}"}
-	cmd_arglist = append(cmd_arglist, command_parts...)
+// commandParts is the command to execute to starting the process. See tmux *shell_command* a full shell command for
+// starting the service. For an abbreviated example, `miniserve -p 1234` results in `/bin/sh -c 'miniserv -p 1234'`,
+// whereas `miniserve` `-p` `1234` results in running miniserve directly with the arguments.
+//
+// TODO multiple processes
+func (session *TmuxSession) SpawnProcesses(windowName string, commandParts ...string) (*TmuxProcGroup, error) {
+	cmd_arglist := []string{"new-window", "-t", session.Name + ":", "-n", windowName, "-P", "-F", "#{window_index}:#{pane_pid}"}
+	cmd_arglist = append(cmd_arglist, commandParts...)
 	cmd := exec.Command(TmuxExecutable, cmd_arglist...)
 	windowInfo, err := cmd.Output()
 	if err != nil {
@@ -63,46 +57,46 @@ func (session *TmuxSession) SpawnService(window string, command_parts ...string)
 		return nil, err
 	}
 
-	serv := &TmuxService{
-		Name:        window,
+	serv := &TmuxProcGroup{
+		Name:        windowName,
 		WindowIndex: windowIndex,
 		Pid:         pid,
-		Status:      SS_Running,
+		Dead:        false,
 	}
-	session.services = append(session.services, serv)
+	session.procGroups = append(session.procGroups, serv)
 	return serv, nil
 }
 
 // TODO discover new windows not created by us
 
 func (session *TmuxSession) Poll() {
-	for _, serv := range session.services {
+	for _, serv := range session.procGroups {
 		err := syscall.Kill(serv.Pid, syscall.Signal(0))
 		if err != nil {
 			serv.Pid = 0
-			serv.Status = SS_Stopped
+			serv.Dead = true
 		}
 	}
 }
 
 func (session *TmuxSession) Prune() {
-	ss := session.services
+	ss := session.procGroups
 	// Technically, the "last unprocessed service" but that's a long name
 	lastAlive := len(ss) - 1
 	i := 0
 	for i <= lastAlive {
 		serv := ss[i]
-		if serv.Status == SS_Stopped {
+		if serv.Dead {
 			ss[i] = ss[lastAlive]
 			lastAlive--
 		} else {
 			i++
 		}
 	}
-	session.services = ss[:lastAlive+1]
+	session.procGroups = ss[:lastAlive+1]
 }
 
-func (session *TmuxSession) SendKeys(serv *TmuxService, keys ...string) error {
+func (session *TmuxSession) SendKeys(serv *TmuxProcGroup, keys ...string) error {
 	cmd_arglist := []string{"send-keys", "-t", session.Name + ":" + serv.Name}
 	cmd_arglist = append(cmd_arglist, keys...)
 	cmd := exec.Command(TmuxExecutable, cmd_arglist...)

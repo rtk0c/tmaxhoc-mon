@@ -1,15 +1,24 @@
 package main
 
+type UnitStatus int
+
+const (
+	US_Stopped UnitStatus = iota
+	US_StoppedOnError
+	US_Running
+)
+
 type Unit struct {
 	Name         string
 	startCommand string
 	stopCommand  string
+	Status       UnitStatus
 }
 
 type UnitRegistrar struct {
-	tmux     *TmuxSession
+	tmux *TmuxSession
 	// List of units, lexigraphically sorted by [Unit.Name]
-	units    []*Unit
+	units []*Unit
 	// Lookup table from [Unit.Name] to the [Unit] itself
 	unitsLut map[string]*Unit
 }
