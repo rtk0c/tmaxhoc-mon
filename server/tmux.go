@@ -23,11 +23,15 @@ type TmuxProcGroup struct {
 var TmuxExecutable = "/bin/tmux"
 
 func NewTmuxSession(session string) (*TmuxSession, error) {
-	// Dummy window to keep the session alive
-	cmd := exec.Command(TmuxExecutable, "new-session", "-d", "-s", session, "/bin/sh")
-	_, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create tmux session: %w", err)
+	cmd := exec.Command(TmuxExecutable, "has-session", "-t", session)
+	err := cmd.Run()
+	if err == nil {
+		// Dummy window to keep the session alive
+		cmd := exec.Command(TmuxExecutable, "new-session", "-d", "-s", session, "/bin/sh")
+		_, err := cmd.Output()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create tmux session: %w", err)
+		}
 	}
 
 	return &TmuxSession{Name: session}, nil
