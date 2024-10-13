@@ -9,7 +9,7 @@ import (
 
 type TmuxSession struct {
 	Name     string
-	services []*Service
+	services []*TmuxService
 }
 
 type ServiceStatus int
@@ -19,7 +19,7 @@ const (
 	SS_Running
 )
 
-type Service struct {
+type TmuxService struct {
 	Name        string
 	WindowIndex int
 	Pid         int
@@ -46,7 +46,7 @@ func NewTmuxSession(session string) (*TmuxSession, error) {
 //
 //	For an abbreviated example: `miniserve -p 1234` results in `/bin/sh -c 'miniserv -p 1234'`,
 //	whereas `miniserve` `-p` `1234` results in running miniserve directly with the arguments.
-func (session *TmuxSession) SpawnService(window string, command_parts ...string) (*Service, error) {
+func (session *TmuxSession) SpawnService(window string, command_parts ...string) (*TmuxService, error) {
 	cmd_arglist := []string{"new-window", "-t", session.Name + ":", "-n", window, "-P", "-F", "#{window_index}:#{pane_pid}"}
 	cmd_arglist = append(cmd_arglist, command_parts...)
 	cmd := exec.Command(TmuxExecutable, cmd_arglist...)
@@ -63,7 +63,7 @@ func (session *TmuxSession) SpawnService(window string, command_parts ...string)
 		return nil, err
 	}
 
-	serv := &Service{
+	serv := &TmuxService{
 		Name:        window,
 		WindowIndex: windowIndex,
 		Pid:         pid,
@@ -72,6 +72,8 @@ func (session *TmuxSession) SpawnService(window string, command_parts ...string)
 	session.services = append(session.services, serv)
 	return serv, nil
 }
+
+// TODO discover new windows not created by us
 
 func (session *TmuxSession) Poll() {
 	for _, serv := range session.services {
@@ -100,7 +102,7 @@ func (session *TmuxSession) Prune() {
 	session.services = ss[:lastAlive+1]
 }
 
-func (session *TmuxSession) SendKeys(serv *Service, keys ...string) error {
+func (session *TmuxSession) SendKeys(serv *TmuxService, keys ...string) error {
 	cmd_arglist := []string{"send-keys", "-t", session.Name + ":" + serv.Name}
 	cmd_arglist = append(cmd_arglist, keys...)
 	cmd := exec.Command(TmuxExecutable, cmd_arglist...)
