@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"os/exec"
 	"strconv"
+	"strings"
 	"syscall"
 )
 
 type TmuxSession struct {
 	Name       string
 	procGroups []*TmuxProcGroup
+	// LUT from [TmuxProcGroup.WindowIndex] to proc groups
+	lut map[int]*TmuxProcGroup
 }
 
 type TmuxProcGroup struct {
@@ -18,6 +21,8 @@ type TmuxProcGroup struct {
 	Pid         int
 	// If true, this process has exited and will be removed on the next call to [TmuxSession.Prune]
 	Dead bool
+	// If true, this process was parsed rather than launched by [TmuxSession.SpawnProcesses]
+	Orphan bool
 }
 
 var TmuxExecutable = "/bin/tmux"
@@ -35,6 +40,11 @@ func NewTmuxSession(session string) (*TmuxSession, error) {
 	}
 
 	return &TmuxSession{Name: session}, nil
+}
+
+func (ss *TmuxSession) insertProcGroup(procGroup *TmuxProcGroup) {
+	ss.procGroups = append(ss.procGroups, procGroup)
+	ss.lut[procGroup.Pid] = procGroup
 }
 
 // windowName is an arbitary tmux window name for running the processes in.
@@ -61,19 +71,16 @@ func (session *TmuxSession) SpawnProcesses(windowName string, commandParts ...st
 		return nil, err
 	}
 
-	serv := &TmuxProcGroup{
+	procGroup := &TmuxProcGroup{
 		Name:        windowName,
 		WindowIndex: windowIndex,
 		Pid:         pid,
-		Dead:        false,
 	}
-	session.procGroups = append(session.procGroups, serv)
-	return serv, nil
+	session.insertProcGroup(procGroup)
+	return procGroup, nil
 }
 
-// TODO discover new windows not created by us
-
-func (session *TmuxSession) Poll() {
+func (session *TmuxSession) Poll() error {
 	for _, serv := range session.procGroups {
 		err := syscall.Kill(serv.Pid, syscall.Signal(0))
 		if err != nil {
@@ -81,6 +88,38 @@ func (session *TmuxSession) Poll() {
 			serv.Dead = true
 		}
 	}
+
+	cmd := exec.Command(TmuxExecutable, "list-panes", "-s", "-t", session.Name+":", "-F", "#{window_index}$#{pane_pid}$#{window_name}")
+	panes, err := cmd.Output()
+	if err != nil {
+		return err
+	}
+
+	for _, lineByte := range strings.Split(string(panes), "\n") {
+		parts := strings.SplitN(lineByte, "$", 2)
+		windowIndex, err := strconv.Atoi(parts[0])
+		if err != nil {
+			return err
+		}
+		pid, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return err
+		}
+		windowName := parts[2]
+
+		procGroup := session.lut[windowIndex]
+		if procGroup == nil {
+			procGroup = &TmuxProcGroup{
+				Name:        windowName,
+				WindowIndex: windowIndex,
+				Pid:         pid,
+				Orphan:      true,
+			}
+			session.insertProcGroup(procGroup)
+		}
+	}
+
+	return nil
 }
 
 func (session *TmuxSession) Prune() {
@@ -91,6 +130,7 @@ func (session *TmuxSession) Prune() {
 	for i <= lastAlive {
 		serv := ss[i]
 		if serv.Dead {
+			delete(session.lut, serv.Pid)
 			ss[i] = ss[lastAlive]
 			lastAlive--
 		} else {
