@@ -45,7 +45,7 @@ var TmuxExecutable = "/bin/tmux"
 func NewTmuxSession(session string) (*TmuxSession, error) {
 	cmd := exec.Command(TmuxExecutable, "has-session", "-t", session)
 	err := cmd.Run()
-	if err == nil {
+	if err != nil {
 		// Dummy window to keep the session alive
 		cmd := exec.Command(TmuxExecutable, "new-session", "-d", "-s", session, "/bin/sh")
 		_, err := cmd.Output()
