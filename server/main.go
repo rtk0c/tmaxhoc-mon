@@ -12,41 +12,67 @@ var ts *TmuxSession
 var unitd *Unitd
 var modelLock sync.RWMutex
 
-func httpProcGroup(w http.ResponseWriter, pg *TmuxProcGroup) {
+func httpOrphanProcGroup(w http.ResponseWriter, pg *TmuxProcGroup) {
 	fmt.Fprintf(w, `
-<div id="unit.%[1]s" class="unit">
-<p class="unit-name">%[1]s</p>
+<div id="pg.%[1]s" class="pg pg_orphan">
+<p class="pg-name">%[1]s</p>
 `, pg.Name)
 
-	if !pg.Dead {
-		fmt.Fprint(w, `<span class="marker marker-running">Running</span>`)
-		fmt.Fprintf(w, `
-<form method="post" action="/api/stop-unit">
-<input type="hidden" name="unit" value="%s">
-<input type="submit" value="Stop">
-</form>`, pg.Name)
+	// Non-unit proc group, cannot exist in a stopped state
+	fmt.Fprint(w, `<span class="marker marker-running">Running</span>`)
+
+	fmt.Fprintln(w, "</div>")
+}
+
+func httpStatusMarker(w http.ResponseWriter, unit string, startstop bool) {
+	var status, class, action, endpoint string
+	if startstop {
+		status = "Running"
+		class = "marker-running"
+		action = "Stop"
+		endpoint = "stop-unit"
 	} else {
-		fmt.Fprint(w, `<span class="marker marker-stopped">Stopped</span>`)
-		fmt.Fprintf(w, `
-<form method="post" action="/api/start-unit">
-<input type="hidden" name="unit" value="%s">
-<input type="submit" value="Start">
-</form>`, pg.Name)
+		status = "Stopped"
+		class = "marker-stopped"
+		action = "Start"
+		endpoint = "start-unit"
 	}
+	fmt.Fprintf(w, `<span class="marker %s">%s</span>`, class, status)
+	fmt.Fprintf(w, `
+<form method="post" action="/api/%s">
+<input type="hidden" name="unit" value="%s">
+<input type="submit" value="%s">
+</form>`, endpoint, unit, action)
+}
+
+func httpUnitProcGroup(w http.ResponseWriter, unit *UnitDefinition /*nullable*/, pg *TmuxProcGroup) {
+	fmt.Fprintf(w, `
+<div id="pg.%[1]s" class="pg pg_unit">
+<p class="pg-name">%[1]s</p>
+`, unit.Name)
+
+	httpStatusMarker(w, unit.Name, pg != nil)
 
 	fmt.Fprintln(w, "</div>")
 }
 
 func httpProcGroups(w http.ResponseWriter) {
+	fmt.Fprintln(w, `<div class="proc-group-container">`)
 	modelLock.RLock()
 
-	fmt.Fprintln(w, `<div class="unit-container">`)
-	for _, procGroup := range ts.byWindowIndex {
-		httpProcGroup(w, procGroup)
+	// Already sorted lexigraphically
+	for _, unit := range unitd.units {
+		httpUnitProcGroup(w, unit, ts.byUnit[unit])
 	}
-	fmt.Fprintln(w, `</div>`)
+	// TODO sort
+	for _, procGroup := range ts.byWindowIndex {
+		if procGroup.Unit == nil {
+			httpOrphanProcGroup(w, procGroup)
+		}
+	}
 
 	modelLock.RUnlock()
+	fmt.Fprintln(w, `</div>`)
 }
 
 func httpHandler(w http.ResponseWriter, req *http.Request) {
@@ -54,7 +80,7 @@ func httpHandler(w http.ResponseWriter, req *http.Request) {
 <!DOCTYPE html><html>
 <head>
 <title>tmaxhoc</title>
-<link rel="stylesheet" href="/static/css/main.css">
+<link rel="stylesheet" href="/static/css/main.css" />
 </head>
 <body>`)
 

@@ -1,15 +1,20 @@
-.unit-container {
+.proc-group-container {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5em;
 }
 
-.unit {
+.pg {
     border: 1.5px solid black;
     border-radius: 8px;
     padding: 0.5em;
     width: 200px;
 }
-.unit-name {
+.pg_orphan {
+}
+.pg_unit {
+}
+
+.pg-name {
     font-size: 1.3em;
 }
