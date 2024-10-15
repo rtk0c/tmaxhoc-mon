@@ -70,6 +70,9 @@ func (ts *TmuxSession) insertProcGroup(procGroup *TmuxProcGroup) {
 func (ts *TmuxSession) removeProcGroup(procGroup *TmuxProcGroup) {
 	delete(ts.byWindowIndex, procGroup.WindowIndex)
 	delete(ts.byUnit, procGroup.Unit)
+	procGroup.Pid = 0
+	procGroup.Dead = true
+	procGroup.Stopping = false
 }
 
 // windowName is an arbitary tmux window name for running the processes in.
@@ -103,6 +106,7 @@ func (ts *TmuxSession) spawnProcesses(windowName string, commandParts ...string)
 		Pid:         pid,
 	}
 	ts.insertProcGroup(procGroup)
+	fmt.Printf("spawned proc group %d:%s of pid=%d\n", windowIndex, windowName, pid)
 	return procGroup, nil
 }
 
@@ -131,8 +135,7 @@ func (ts *TmuxSession) PollAndPrune() error {
 	for _, procGroup := range ts.byWindowIndex {
 		err := syscall.Kill(procGroup.Pid, syscall.Signal(0))
 		if err != nil {
-			procGroup.Pid = 0
-			procGroup.Dead = true
+			fmt.Printf("removing dead proc group %d:%s of pid=%d\n", procGroup.WindowIndex, procGroup.Name, procGroup.Pid)
 			ts.removeProcGroup(procGroup)
 		}
 	}
@@ -170,6 +173,7 @@ func (ts *TmuxSession) PollAndPrune() error {
 				Orphan:      true,
 			}
 			ts.insertProcGroup(procGroup)
+			fmt.Printf("polled proc group %d:%s of pid=%d\n", windowIndex, windowName, pid)
 		}
 	}
 

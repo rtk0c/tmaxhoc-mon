@@ -24,34 +24,41 @@ func httpOrphanProcGroup(w http.ResponseWriter, pg *TmuxProcGroup) {
 	fmt.Fprintln(w, "</div>")
 }
 
-func httpStatusMarker(w http.ResponseWriter, unit string, startstop bool) {
-	var status, class, action, endpoint string
-	if startstop {
-		status = "Running"
-		class = "marker-running"
-		action = "Stop"
-		endpoint = "stop-unit"
-	} else {
-		status = "Stopped"
-		class = "marker-stopped"
-		action = "Start"
-		endpoint = "start-unit"
-	}
-	fmt.Fprintf(w, `<span class="marker %s">%s</span>`, class, status)
-	fmt.Fprintf(w, `
-<form method="post" action="/api/%s">
-<input type="hidden" name="unit" value="%s">
-<input type="submit" value="%s">
-</form>`, endpoint, unit, action)
-}
-
 func httpUnitProcGroup(w http.ResponseWriter, unit *UnitDefinition /*nullable*/, pg *TmuxProcGroup) {
 	fmt.Fprintf(w, `
 <div id="pg.%[1]s" class="pg pg_unit">
 <p class="pg-name">%[1]s</p>
 `, unit.Name)
 
-	httpStatusMarker(w, unit.Name, pg != nil)
+	pg = ts.byUnit[unit]
+	var status, class, action, endpoint string
+	if pg != nil {
+		if pg.Stopping {
+			status = "Stopping"
+			class = "marker-stopping"
+			action = ""
+			endpoint = ""
+		} else {
+			status = "Running"
+			class = "marker-running"
+			action = "Stop"
+			endpoint = "stop-unit"
+		}
+	} else {
+		status = "Stopped"
+		class = "marker-stopped"
+		action = "Start"
+		endpoint = "start-unit"
+	}
+
+	fmt.Fprintf(w, `<span class="marker %s">%s</span>`, class, status)
+	if len(action) > 0 {
+		fmt.Fprintf(w, `
+<form method="post" action="/api/%s">
+<input type="hidden" name="unit" value="%s">
+<input type="submit" value="%s">
+</form>`, endpoint, unit.Name, action)
+	}
 
 	fmt.Fprintln(w, "</div>")
 }
@@ -100,7 +107,11 @@ func apiStartUnit(w http.ResponseWriter, req *http.Request) {
 	req.ParseForm()
 	unitName := req.Form.Get("unit")
 	unit := unitd.unitsLut[unitName]
-	ts.StartUnit(unit)
+	if unit != nil {
+		modelLock.Lock()
+		ts.StartUnit(unit)
+		modelLock.Unlock()
+	}
 
 	fmt.Printf("got /api/start-unit for unit=%s\n", unitName)
 
@@ -116,7 +127,11 @@ func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 	req.ParseForm()
 	unitName := req.Form.Get("unit")
 	unit := unitd.unitsLut[unitName]
-	ts.StopUnit(unit)
+	if unit != nil {
+		modelLock.Lock()
+		ts.StopUnit(unit)
+		modelLock.Unlock()
+	}
 
 	fmt.Printf("got /api/stop-unit for unit=%s\n", unitName)
 
