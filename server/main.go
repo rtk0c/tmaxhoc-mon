@@ -100,7 +100,7 @@ func apiStartUnit(w http.ResponseWriter, req *http.Request) {
 	req.ParseForm()
 	unitName := req.Form.Get("unit")
 	unit := unitd.unitsLut[unitName]
-	ts.StopUnit(unit)
+	ts.StartUnit(unit)
 
 	fmt.Printf("got /api/start-unit for unit=%s\n", unitName)
 
@@ -116,7 +116,7 @@ func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 	req.ParseForm()
 	unitName := req.Form.Get("unit")
 	unit := unitd.unitsLut[unitName]
-	ts.StartUnit(unit)
+	ts.StopUnit(unit)
 
 	fmt.Printf("got /api/stop-unit for unit=%s\n", unitName)
 

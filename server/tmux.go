@@ -97,6 +97,7 @@ func (ts *TmuxSession) spawnProcesses(windowName string, commandParts ...string)
 	}
 
 	procGroup := &TmuxProcGroup{
+		Unit:        ts.associatedUnitd.MatchByName(windowName),
 		Name:        windowName,
 		WindowIndex: windowIndex,
 		Pid:         pid,

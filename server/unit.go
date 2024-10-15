@@ -23,10 +23,10 @@ func NewUnitd() (*Unitd, error) {
 
 	// TODO read config file for units
 	var u *UnitDefinition
-	u = &UnitDefinition{Name: "Baking", startCommand: []string{"./run"}, stopCommand: []string{"stop", "Enter"}}
+	u = &UnitDefinition{Name: "Baking", startCommand: []string{"/bin/sh"}, stopCommand: []string{"exit", "Enter"}}
 	r.units = append(r.units, u)
 	r.unitsLut["Baking"] = u
-	u = &UnitDefinition{Name: "Stoneblock 3", startCommand: []string{"./run"}, stopCommand: []string{"stop", "Enter"}}
+	u = &UnitDefinition{Name: "Stoneblock 3", startCommand: []string{"/bin/sh"}, stopCommand: []string{"exit", "Enter"}}
 	r.unitsLut["Stoneblock 3"] = u
 	r.units = append(r.units, u)
 
