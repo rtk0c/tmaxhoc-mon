@@ -9,45 +9,44 @@ import (
 )
 
 var ts *TmuxSession
-var registar *UnitRegistrar
-var regLock sync.RWMutex
+var unitd *Unitd
+var modelLock sync.RWMutex
 
-func httpUnit(w http.ResponseWriter, u *Unit) {
+func httpProcGroup(w http.ResponseWriter, pg *TmuxProcGroup) {
 	fmt.Fprintf(w, `
 <div id="unit.%[1]s" class="unit">
 <p class="unit-name">%[1]s</p>
-`, u.Name)
+`, pg.Name)
 
-	switch u.Status {
-	case US_Running:
+	if pg.Dead {
 		fmt.Fprint(w, `<span class="marker marker-running">Running</span>`)
 		fmt.Fprintf(w, `
 <form method="post" action="/api/stop-unit">
 <input type="hidden" name="unit" value="%s">
 <input type="submit" value="Stop">
-</form>`, u.Name)
-	case US_Stopped:
+</form>`, pg.Name)
+	} else {
 		fmt.Fprint(w, `<span class="marker marker-stopped">Stopped</span>`)
 		fmt.Fprintf(w, `
 <form method="post" action="/api/start-unit">
 <input type="hidden" name="unit" value="%s">
 <input type="submit" value="Start">
-</form>`, u.Name)
+</form>`, pg.Name)
 	}
 
 	fmt.Fprintln(w, "</div>")
 }
 
-func httpDisplayRegistrar(w http.ResponseWriter) {
-	regLock.RLock()
+func httpProcGroups(w http.ResponseWriter) {
+	modelLock.RLock()
 
 	fmt.Fprintln(w, `<div class="unit-container">`)
-	for _, unit := range registar.units {
-		httpUnit(w, unit)
+	for _, procGroup := range ts.procGroups {
+		httpProcGroup(w, procGroup)
 	}
 	fmt.Fprintln(w, `</div>`)
 
-	regLock.RUnlock()
+	modelLock.RUnlock()
 }
 
 func httpHandler(w http.ResponseWriter, req *http.Request) {
@@ -59,7 +58,7 @@ func httpHandler(w http.ResponseWriter, req *http.Request) {
 </head>
 <body>`)
 
-	httpDisplayRegistrar(w)
+	httpProcGroups(w)
 
 	fmt.Fprintln(w, `
 </body>
@@ -74,8 +73,8 @@ func apiStartUnit(w http.ResponseWriter, req *http.Request) {
 
 	req.ParseForm()
 	unitName := req.Form.Get("unit")
-	unit := registar.unitsLut[unitName]
-	registar.StopUnit(unit)
+	unit := unitd.unitsLut[unitName]
+	ts.StopUnit(unit)
 
 	fmt.Printf("got /api/start-unit for unit=%s\n", unitName)
 
@@ -90,8 +89,8 @@ func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 
 	req.ParseForm()
 	unitName := req.Form.Get("unit")
-	unit := registar.unitsLut[unitName]
-	registar.StartUnit(unit)
+	unit := unitd.unitsLut[unitName]
+	ts.StartUnit(unit)
 
 	fmt.Printf("got /api/stop-unit for unit=%s\n", unitName)
 
@@ -101,12 +100,12 @@ func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 func main() {
 	var err error
 
-	ts, err = NewTmuxSession("Minecraft")
+	unitd, err = NewUnitd()
 	if err != nil {
 		panic(err)
 	}
 
-	registar, err = NewUnitRegistrar(ts)
+	ts, err = NewTmuxSession("Minecraft")
 	if err != nil {
 		panic(err)
 	}
@@ -117,11 +116,10 @@ func main() {
 		for {
 			select {
 			case <-tsPollTimer.C:
+				modelLock.Lock()
 				ts.Poll()
 				ts.Prune()
-				regLock.Lock()
-				registar.MapFromTmux()
-				regLock.Unlock()
+				modelLock.Unlock()
 			case <-tsPollStop:
 				return
 			}
