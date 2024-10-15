@@ -18,7 +18,7 @@ func httpProcGroup(w http.ResponseWriter, pg *TmuxProcGroup) {
 <p class="unit-name">%[1]s</p>
 `, pg.Name)
 
-	if pg.Dead {
+	if !pg.Dead {
 		fmt.Fprint(w, `<span class="marker marker-running">Running</span>`)
 		fmt.Fprintf(w, `
 <form method="post" action="/api/stop-unit">
@@ -41,7 +41,7 @@ func httpProcGroups(w http.ResponseWriter) {
 	modelLock.RLock()
 
 	fmt.Fprintln(w, `<div class="unit-container">`)
-	for _, procGroup := range ts.procGroups {
+	for _, procGroup := range ts.byWindowIndex {
 		httpProcGroup(w, procGroup)
 	}
 	fmt.Fprintln(w, `</div>`)
@@ -105,13 +105,14 @@ func main() {
 		panic(err)
 	}
 
-	ts, err = NewTmuxSession("Minecraft")
+	ts, err = NewTmuxSession(unitd, "Minecraft")
 	if err != nil {
 		panic(err)
 	}
 
 	tsPollTimer := time.NewTicker(5 * time.Second)
 	tsPollStop := make(chan bool)
+	ts.PollAndPrune()
 	go func() {
 		for {
 			select {

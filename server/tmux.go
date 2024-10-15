@@ -42,7 +42,7 @@ type TmuxProcGroup struct {
 
 var TmuxExecutable = "/bin/tmux"
 
-func NewTmuxSession(session string) (*TmuxSession, error) {
+func NewTmuxSession(unitd *Unitd, session string) (*TmuxSession, error) {
 	cmd := exec.Command(TmuxExecutable, "has-session", "-t", session)
 	err := cmd.Run()
 	if err != nil {
@@ -54,11 +54,16 @@ func NewTmuxSession(session string) (*TmuxSession, error) {
 		}
 	}
 
-	return &TmuxSession{Name: session}, nil
+	return &TmuxSession{
+		Name:            session,
+		byWindowIndex:   make(map[int]*TmuxProcGroup),
+		byUnit:          make(map[*UnitDefinition]*TmuxProcGroup),
+		associatedUnitd: unitd,
+	}, nil
 }
 
 func (ts *TmuxSession) insertProcGroup(procGroup *TmuxProcGroup) {
-	ts.byWindowIndex[procGroup.Pid] = procGroup
+	ts.byWindowIndex[procGroup.WindowIndex] = procGroup
 	ts.byUnit[procGroup.Unit] = procGroup
 }
 
@@ -132,17 +137,21 @@ func (ts *TmuxSession) PollAndPrune() error {
 	}
 
 	//// Poll for newly created windows by somebody else, keep records and try to map them to units ////
-	cmd := exec.Command(TmuxExecutable, "list-panes", "-s", "-t", ts.Name+":", "-F", "#{window_index}$#{pane_pid}$#{window_name}")
+	cmd := exec.Command(TmuxExecutable, "list-panes", "-s", "-t", ts.Name+":", "-F", "#{window_index}:#{pane_pid}:#{window_name}")
 	panes, err := cmd.Output()
 	if err != nil {
 		return err
 	}
 
-	for _, lineByte := range strings.Split(string(panes), "\n") {
-		parts := strings.SplitN(lineByte, "$", 2)
+	for _, line := range strings.Split(string(panes), "\n") {
+		parts := strings.SplitN(line, ":", 3)
 		windowIndex, err := strconv.Atoi(parts[0])
 		if err != nil {
 			return err
+		}
+		// This is the special reserved window 0 to keep session alive when all procs have stopped
+		if windowIndex == 0 {
+			continue
 		}
 		pid, err := strconv.Atoi(parts[1])
 		if err != nil {
