@@ -23,6 +23,8 @@ type UnitRegistrar struct {
 	// Lookup table from [Unit.Name] to the [Unit] itself.
 	// Immutable after load.
 	unitsLut map[string]*Unit
+	// Currently running unit
+	running map[*TmuxProcGroup]*Unit
 }
 
 // TODO read config file for units
@@ -69,12 +71,17 @@ func (reg *UnitRegistrar) StopUnit(unit *Unit) {
 }
 
 func (reg *UnitRegistrar) MapFromTmux() {
-	for _, unit := range reg.units {
-		if unit.procGroup == nil {
+	for _, procGroup := range reg.tmux.procGroups {
+		// Already mapped this proc group
+		if unit := reg.running[procGroup]; unit != nil {
+			updateUnitFromTmux(unit)
 			continue
 		}
 
-		updateUnitFromTmux(unit)
+		matchingUnit := reg.unitsLut[procGroup.Name]
+		if matchingUnit != nil {
+			reg.running[procGroup] = matchingUnit
+			matchingUnit.Status = US_Running
+		}
 	}
-	// TODO map from "wild" tmux windows/process groups
 }
