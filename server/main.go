@@ -117,8 +117,7 @@ func main() {
 			select {
 			case <-tsPollTimer.C:
 				modelLock.Lock()
-				ts.Poll()
-				ts.Prune()
+				ts.PollAndPrune()
 				modelLock.Unlock()
 			case <-tsPollStop:
 				return

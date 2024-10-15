@@ -9,11 +9,12 @@ import (
 )
 
 type TmuxSession struct {
-	Name       string
-	procGroups []*TmuxProcGroup
-	// LUT from [TmuxProcGroup.WindowIndex] to proc groups
+	Name string
+	// LUT from [TmuxProcGroup.WindowIndex] to proc groups.
+	// Every proc group managed by this session must be inside this map.
 	byWindowIndex map[int]*TmuxProcGroup
-	// LUT from [TmuxProcGroup.Unit] to proc groups
+	// LUT from [TmuxProcGroup.Unit] to proc groups.
+	// A proc group managed by this session is in this map only if it has an associated unit.
 	byUnit map[*UnitDefinition]*TmuxProcGroup
 	// Unitd to match proc groups from
 	associatedUnitd *Unitd
@@ -26,7 +27,12 @@ type TmuxProcGroup struct {
 	Name        string
 	WindowIndex int
 	Pid         int
-	// If true, this process has exited and will be removed on the next call to [TmuxSession.Prune]
+	// If true, a stop command has been issued but we're not sure it has died.
+	// TODO stopping time so we can have a timeout mechanism?
+	Stopping bool
+	// If true, this process has exited and been removed by [TmuxSession.PollAndPrune].
+	// This field is for let library users to drop the reference to this proc group after it died,
+	// without having to do a lookup in the [TmuxService].
 	Dead bool
 	// If true, this process was parsed rather than launched by [TmuxSession.SpawnProcesses].
 	// Note that this property is orthogonal to [TmuxProcGroup.Unit];
@@ -52,9 +58,13 @@ func NewTmuxSession(session string) (*TmuxSession, error) {
 }
 
 func (ts *TmuxSession) insertProcGroup(procGroup *TmuxProcGroup) {
-	ts.procGroups = append(ts.procGroups, procGroup)
 	ts.byWindowIndex[procGroup.Pid] = procGroup
 	ts.byUnit[procGroup.Unit] = procGroup
+}
+
+func (ts *TmuxSession) removeProcGroup(procGroup *TmuxProcGroup) {
+	delete(ts.byWindowIndex, procGroup.WindowIndex)
+	delete(ts.byUnit, procGroup.Unit)
 }
 
 // windowName is an arbitary tmux window name for running the processes in.
@@ -92,8 +102,7 @@ func (ts *TmuxSession) spawnProcesses(windowName string, commandParts ...string)
 
 func (ts *TmuxSession) StartUnit(unit *UnitDefinition) {
 	procGroup := ts.byUnit[unit]
-	if procGroup != nil  {
-		// TODO allow Dead proc groups to be restarted?
+	if procGroup != nil {
 		return
 	}
 
@@ -107,18 +116,22 @@ func (ts *TmuxSession) StopUnit(unit *UnitDefinition) {
 	}
 
 	ts.SendKeys(procGroup, unit.stopCommand...)
+	procGroup.Stopping = true
 	// Let the next call to [TmuxSession.Poll] to cleanup this ts
 }
 
-func (ts *TmuxSession) Poll() error {
-	for _, serv := range ts.procGroups {
-		err := syscall.Kill(serv.Pid, syscall.Signal(0))
+func (ts *TmuxSession) PollAndPrune() error {
+	//// Detect dead proc groups, and prune them ////
+	for _, procGroup := range ts.byWindowIndex {
+		err := syscall.Kill(procGroup.Pid, syscall.Signal(0))
 		if err != nil {
-			serv.Pid = 0
-			serv.Dead = true
+			procGroup.Pid = 0
+			procGroup.Dead = true
+			ts.removeProcGroup(procGroup)
 		}
 	}
 
+	//// Poll for newly created windows by somebody else, keep records and try to map them to units ////
 	cmd := exec.Command(TmuxExecutable, "list-panes", "-s", "-t", ts.Name+":", "-F", "#{window_index}$#{pane_pid}$#{window_name}")
 	panes, err := cmd.Output()
 	if err != nil {
@@ -151,23 +164,6 @@ func (ts *TmuxSession) Poll() error {
 	}
 
 	return nil
-}
-
-func (ts *TmuxSession) Prune() {
-	procGroups := ts.procGroups
-	// Technically, the "last unprocessed service" but that's a long name
-	lastAlive := len(procGroups) - 1
-	i := 0
-	for i <= lastAlive {
-		if procGroups[i].Dead {
-			delete(ts.byWindowIndex, procGroups[i].Pid)
-			procGroups[i] = procGroups[lastAlive]
-			lastAlive--
-		} else {
-			i++
-		}
-	}
-	ts.procGroups = procGroups[:lastAlive+1]
 }
 
 func (session *TmuxSession) SendKeys(serv *TmuxProcGroup, keys ...string) error {
