@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 type TmuxSession struct {
@@ -29,7 +30,7 @@ type TmuxProcGroup struct {
 	Pid         int
 	// If true, a stop command has been issued but we're not sure it has died.
 	// TODO stopping time so we can have a timeout mechanism?
-	Stopping bool
+	StoppingAttempt time.Time
 	// If true, this process has exited and been removed by [TmuxSession.PollAndPrune].
 	// This field is for let library users to drop the reference to this proc group after it died,
 	// without having to do a lookup in the [TmuxService].
@@ -64,15 +65,14 @@ func NewTmuxSession(unitd *Unitd, session string) (*TmuxSession, error) {
 
 func (ts *TmuxSession) insertProcGroup(procGroup *TmuxProcGroup) {
 	ts.byWindowIndex[procGroup.WindowIndex] = procGroup
-	ts.byUnit[procGroup.Unit] = procGroup
+	if procGroup.Unit != nil {
+		ts.byUnit[procGroup.Unit] = procGroup
+	}
 }
 
 func (ts *TmuxSession) removeProcGroup(procGroup *TmuxProcGroup) {
 	delete(ts.byWindowIndex, procGroup.WindowIndex)
 	delete(ts.byUnit, procGroup.Unit)
-	procGroup.Pid = 0
-	procGroup.Dead = true
-	procGroup.Stopping = false
 }
 
 // windowName is an arbitary tmux window name for running the processes in.
@@ -126,8 +126,15 @@ func (ts *TmuxSession) StopUnit(unit *UnitDefinition) {
 	}
 
 	ts.SendKeys(procGroup, unit.stopCommand...)
-	procGroup.Stopping = true
+	procGroup.StoppingAttempt = time.Now()
 	// Let the next call to [TmuxSession.Poll] to cleanup this ts
+}
+
+func (ts *TmuxSession) ForceKillProcGroup(procGroup *TmuxProcGroup) {
+	err := syscall.Kill(procGroup.Pid, syscall.SIGKILL)
+	if err != nil {
+		fmt.Printf("[ERROR] failed to force kill pid=%d: %s\n", procGroup.Pid, err)
+	}
 }
 
 func (ts *TmuxSession) PollAndPrune() error {
@@ -137,6 +144,7 @@ func (ts *TmuxSession) PollAndPrune() error {
 		if err != nil {
 			fmt.Printf("removing dead proc group %d:%s of pid=%d\n", procGroup.WindowIndex, procGroup.Name, procGroup.Pid)
 			ts.removeProcGroup(procGroup)
+			procGroup.Dead = true
 		}
 	}
 

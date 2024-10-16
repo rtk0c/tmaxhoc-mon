@@ -30,10 +30,9 @@ func httpUnitProcGroup(w http.ResponseWriter, unit *UnitDefinition /*nullable*/,
 <p class="pg-name">%[1]s</p>
 `, unit.Name)
 
-	pg = ts.byUnit[unit]
 	var status, class, action, endpoint string
 	if pg != nil {
-		if pg.Stopping {
+		if isStopping(pg) {
 			status = "Stopping"
 			class = "marker-stopping"
 			action = ""
@@ -58,6 +57,14 @@ func httpUnitProcGroup(w http.ResponseWriter, unit *UnitDefinition /*nullable*/,
 <input type="hidden" name="unit" value="%s">
 <input type="submit" value="%s">
 </form>`, endpoint, unit.Name, action)
+	}
+	if pg != nil && forceStopAllowed(pg) {
+		fmt.Fprintf(w, `
+<form method="post" action="/api/stop-unit">
+<input type="hidden" name="unit" value="%s">
+<input type="hidden" name="force" value="true">
+<input type="submit" value="Force stop">
+</form>`, unit.Name)
 	}
 
 	fmt.Fprintln(w, "</div>")
@@ -118,20 +125,45 @@ func apiStartUnit(w http.ResponseWriter, req *http.Request) {
 	http.Redirect(w, req, "/", http.StatusFound)
 }
 
+func isStopping(pg *TmuxProcGroup) bool {
+	return !pg.StoppingAttempt.IsZero()
+}
+
+func forceStopAllowed(pg *TmuxProcGroup) bool {
+	return isStopping(pg) && time.Since(pg.StoppingAttempt) > 10*time.Second
+}
+
 func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	req.ParseForm()
-	unitName := req.Form.Get("unit")
+	unitName := req.FormValue("unit")
 	unit := unitd.unitsLut[unitName]
-	if unit != nil {
-		modelLock.Lock()
-		ts.StopUnit(unit)
-		modelLock.Unlock()
+	if unit == nil {
+		return
 	}
+	procGroup := ts.byUnit[unit]
+
+	force := false
+	opt := req.FormValue("force")
+	if forceStopAllowed(procGroup) {
+		force = opt == "true"
+	} else {
+		if len(opt) > 0 {
+			fmt.Println("[ERROR] not enough time has passed since stopping attempt to force kill")
+			return
+		}
+	}
+
+	modelLock.Lock()
+	if force {
+		ts.ForceKillProcGroup(procGroup)
+	} else {
+		ts.StopUnit(unit)
+	}
+	modelLock.Unlock()
 
 	fmt.Printf("got /api/stop-unit for unit=%s\n", unitName)
 
