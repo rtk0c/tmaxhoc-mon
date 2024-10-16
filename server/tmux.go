@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -17,6 +18,8 @@ type TmuxSession struct {
 	// LUT from [TmuxProcGroup.Unit] to proc groups.
 	// A proc group managed by this session is in this map only if it has an associated unit.
 	byUnit map[*UnitDefinition]*TmuxProcGroup
+	// Proc groups that are about to die or is evident to be dead by a conflicting window index.
+	suspectDead []*TmuxProcGroup
 	// Unitd to match proc groups from
 	associatedUnitd *Unitd
 }
@@ -64,6 +67,14 @@ func NewTmuxSession(unitd *Unitd, session string) (*TmuxSession, error) {
 }
 
 func (ts *TmuxSession) insertProcGroup(procGroup *TmuxProcGroup) {
+	old := ts.byWindowIndex[procGroup.WindowIndex]
+	if old != nil {
+		// Not needed. Insertion below overrides it anyways.
+		/* delete(ts.byWindowIndex, old.WindowIndex) */
+		delete(ts.byUnit, old.Unit)
+		ts.suspectDead = append(ts.suspectDead, old)
+	}
+
 	ts.byWindowIndex[procGroup.WindowIndex] = procGroup
 	if procGroup.Unit != nil {
 		ts.byUnit[procGroup.Unit] = procGroup
@@ -127,7 +138,8 @@ func (ts *TmuxSession) StopUnit(unit *UnitDefinition) {
 
 	ts.SendKeys(procGroup, unit.stopCommand...)
 	procGroup.StoppingAttempt = time.Now()
-	// Let the next call to [TmuxSession.Poll] to cleanup this ts
+	ts.removeProcGroup(procGroup)
+	ts.suspectDead = append(ts.suspectDead, procGroup)
 }
 
 func (ts *TmuxSession) ForceKillProcGroup(procGroup *TmuxProcGroup) {
@@ -147,6 +159,24 @@ func (ts *TmuxSession) PollAndPrune() error {
 			procGroup.Dead = true
 		}
 	}
+	// Technically, the "last unprocessed proc group" but that's a long name
+	lastAlive := len(ts.suspectDead) - 1
+	i := 0
+	for i <= lastAlive {
+		suspect := ts.suspectDead[i]
+		err := syscall.Kill(suspect.Pid, syscall.Signal(0))
+		if err != nil {
+			fmt.Printf("removing confirmed suspect dead proc group %d:%s of pid=%d\n", suspect.WindowIndex, suspect.Name, suspect.Pid)
+			// Defensive: all suspect deads should already be removed from byXxx lookup tables, but in case it is not
+			// catch it here, so we still have a consistent state
+			ts.removeProcGroup(suspect)
+			ts.suspectDead[i] = ts.suspectDead[lastAlive]
+			lastAlive--
+		} else {
+			i++
+		}
+	}
+	ts.suspectDead = ts.suspectDead[:lastAlive+1]
 
 	//// Poll for newly created windows by somebody else, keep records and try to map them to units ////
 	cmd := exec.Command(TmuxExecutable, "list-panes", "-s", "-t", ts.Name+":", "-F", "#{window_index}:#{pane_pid}:#{window_name}")
@@ -172,17 +202,22 @@ func (ts *TmuxSession) PollAndPrune() error {
 		windowName := parts[2]
 
 		procGroup := ts.byWindowIndex[windowIndex]
-		if procGroup == nil {
-			procGroup = &TmuxProcGroup{
-				Unit:        ts.associatedUnitd.MatchByName(windowName),
-				Name:        windowName,
-				WindowIndex: windowIndex,
-				Pid:         pid,
-				Orphan:      true,
-			}
-			ts.insertProcGroup(procGroup)
-			fmt.Printf("polled proc group %d:%s of pid=%d\n", windowIndex, windowName, pid)
+		if procGroup != nil {
+			continue
 		}
+		if slices.Contains(ts.suspectDead, procGroup) {
+			continue
+		}
+
+		procGroup = &TmuxProcGroup{
+			Unit:        ts.associatedUnitd.MatchByName(windowName),
+			Name:        windowName,
+			WindowIndex: windowIndex,
+			Pid:         pid,
+			Orphan:      true,
+		}
+		ts.insertProcGroup(procGroup)
+		fmt.Printf("polled proc group %d:%s of pid=%d\n", windowIndex, windowName, pid)
 	}
 
 	return nil

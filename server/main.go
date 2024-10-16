@@ -76,7 +76,16 @@ func httpProcGroups(w http.ResponseWriter) {
 
 	// Already sorted lexigraphically
 	for _, unit := range unitd.units {
-		httpUnitProcGroup(w, unit, ts.byUnit[unit])
+		pg := ts.byUnit[unit]
+		if pg == nil {
+			for _, unalive := range ts.suspectDead {
+				if unalive.Unit == unit {
+					pg = unalive
+					break
+				}
+			}
+		}
+		httpUnitProcGroup(w, unit, pg)
 	}
 	// TODO sort
 	for _, procGroup := range ts.byWindowIndex {
