@@ -141,7 +141,11 @@ func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 func main() {
 	var err error
 
-	unitd, err = NewUnitd()
+	staticFilesDir := flag.String("static-files", ".", "Path to the directory holding static files")
+	unidDefsFile := flag.String("unit-definitions", "", "Path to the config file for unit definitions")
+	flag.Parse()
+
+	unitd, err = NewUnitd(*unidDefsFile)
 	if err != nil {
 		panic(err)
 	}
@@ -166,10 +170,6 @@ func main() {
 			}
 		}
 	}()
-
-	staticFilesDir := flag.String("static-files", ".", "Path to the directory holding static files")
-	flag.Parse()
-	fmt.Println(*staticFilesDir)
 
 	http.HandleFunc("/", httpHandler)
 	http.HandleFunc("/api/start-unit", apiStartUnit)

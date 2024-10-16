@@ -1,5 +1,12 @@
 package main
 
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strings"
+)
+
 type UnitDefinition struct {
 	Name         string
 	startCommand []string
@@ -15,20 +22,88 @@ type Unitd struct {
 	unitsLut map[string]*UnitDefinition
 }
 
-func NewUnitd() (*Unitd, error) {
+func handleOptionEntry(unit *UnitDefinition, key string, value []string) {
+	if unit == nil {
+		// TODO handle global option
+		return
+	}
+
+	switch key {
+	case "StartCommand":
+		unit.startCommand = value
+	case "StopCommand":
+		unit.stopCommand = value
+	default:
+		fmt.Println("[ERROR] invalid config option " + key)
+	}
+}
+
+func NewUnitd(unitDefsFile string) (*Unitd, error) {
 	r := &Unitd{
 		units:    make([]*UnitDefinition, 0),
 		unitsLut: make(map[string]*UnitDefinition),
 	}
 
-	// TODO read config file for units
-	var u *UnitDefinition
-	u = &UnitDefinition{Name: "Baking", startCommand: []string{"/bin/sh"}, stopCommand: []string{"exit", "Enter"}}
-	r.units = append(r.units, u)
-	r.unitsLut["Baking"] = u
-	u = &UnitDefinition{Name: "Stoneblock 3", startCommand: []string{"/bin/sh"}, stopCommand: []string{"exit", "Enter"}}
-	r.unitsLut["Stoneblock 3"] = u
-	r.units = append(r.units, u)
+	f, err := os.Open(unitDefsFile)
+	if err != nil {
+		panic(err)
+	}
+	fbuf := bufio.NewScanner(f)
+	var currUnit *UnitDefinition
+	var currKey string
+	var currValue []string
+	hasKVPair := false
+	for fbuf.Scan() {
+		line := fbuf.Text()
+
+		// Skip empty lines
+		if len(line) == 0 {
+			continue
+		}
+
+		// New section
+		rest := line
+		rest, found1 := strings.CutPrefix(rest, "[")
+		rest, found2 := strings.CutSuffix(rest, "]")
+		if found1 && found2 {
+			if hasKVPair {
+				handleOptionEntry(currUnit, currKey, currValue)
+			}
+			currUnit = &UnitDefinition{Name: rest}
+			r.units = append(r.units, currUnit)
+			r.unitsLut[currUnit.Name] = currUnit
+			hasKVPair = false
+			continue
+		}
+
+		// Multiline values
+		// Append to current K/V pair
+		if hasKVPair {
+			rest, hasIndent := strings.CutPrefix(line, "  ")
+			if hasIndent {
+				currValue = append(currValue, strings.TrimSpace(rest))
+				continue
+			}
+		}
+		// New K/V pair
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			// Push previous K/V pair
+			// For the last K/V pair before the first section, this will be pushed by the
+			if hasKVPair {
+				handleOptionEntry(currUnit, currKey, currValue)
+			}
+			currKey = strings.TrimSpace(parts[0])
+			currValue = []string{strings.TrimSpace(parts[1])}
+			hasKVPair = true
+			continue
+		}
+
+		// Some other thing
+	}
+	if hasKVPair {
+		handleOptionEntry(currUnit, currKey, currValue)
+	}
 
 	return r, nil
 }
