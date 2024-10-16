@@ -120,6 +120,14 @@ func httpHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func apiStartUnit(w http.ResponseWriter, req *http.Request) {
+	if len(ts.byWindowIndex) >= 1 {
+		http.Error(w, `
+Failed to start unit:
+Cannot run more than 1 server at the same time. Please stop something else before starting this server.
+Use the browser back button to go to the server panel again.`, http.StatusForbidden)
+		return
+	}
+
 	unitName := req.FormValue("unit")
 	unit := unitd.unitsLut[unitName]
 	fmt.Printf("got /api/start-unit for unit=%s\n", unitName)
