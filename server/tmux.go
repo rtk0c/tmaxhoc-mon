@@ -171,6 +171,7 @@ func (ts *TmuxSession) PollAndPrune() error {
 			// catch it here, so we still have a consistent state
 			ts.removeProcGroup(suspect)
 			ts.suspectDead[i] = ts.suspectDead[lastAlive]
+			suspect.Dead = true
 			lastAlive--
 		} else {
 			i++

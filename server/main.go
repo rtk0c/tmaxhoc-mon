@@ -152,31 +152,41 @@ func forceStopAllowed(pg *TmuxProcGroup) bool {
 func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 	unitName := req.FormValue("unit")
 	unit := unitd.unitsLut[unitName]
+	fmt.Printf("got /api/stop-unit for unit=%s\n", unitName)
 	if unit == nil {
 		return
 	}
-	fmt.Printf("got /api/stop-unit for unit=%s\n", unitName)
-	procGroup := ts.byUnit[unit]
 
 	force := false
-	opt := req.FormValue("force")
-	if forceStopAllowed(procGroup) {
-		force = opt == "true"
+	forceOpt := req.FormValue("force")
+	if forceOpt == "true" {
+		force = true
+	} else if forceOpt == "" {
+		force = false
 	} else {
-		if len(opt) > 0 {
-			fmt.Println("[ERROR] not enough time has passed since stopping attempt to force kill")
-			return
-		}
+		http.Error(w, "invalid option: force='"+forceOpt+"', accepted '' or 'true'", http.StatusBadRequest)
+		return
 	}
 
 	modelLock.Lock()
+
+	procGroup := ts.byUnit[unit]
+	if procGroup == nil {
+		modelLock.Unlock()
+		return
+	}
+	if force && !forceStopAllowed(procGroup) {
+		http.Error(w, "force kill not allowed: not enough time has passed since stopping attempt", http.StatusBadRequest)
+		modelLock.Unlock()
+		return
+	}
+
 	if force {
 		ts.ForceKillProcGroup(procGroup)
 	} else {
 		ts.StopUnit(unit)
 	}
 	modelLock.Unlock()
-
 	http.Redirect(w, req, "/", http.StatusFound)
 }
 
