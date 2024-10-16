@@ -115,21 +115,15 @@ func httpHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func apiStartUnit(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	req.ParseForm()
-	unitName := req.Form.Get("unit")
+	unitName := req.FormValue("unit")
 	unit := unitd.unitsLut[unitName]
+	fmt.Printf("got /api/start-unit for unit=%s\n", unitName)
+
 	if unit != nil {
 		modelLock.Lock()
 		ts.StartUnit(unit)
 		modelLock.Unlock()
 	}
-
-	fmt.Printf("got /api/start-unit for unit=%s\n", unitName)
 
 	http.Redirect(w, req, "/", http.StatusFound)
 }
@@ -143,16 +137,12 @@ func forceStopAllowed(pg *TmuxProcGroup) bool {
 }
 
 func apiStopUnit(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	unitName := req.FormValue("unit")
 	unit := unitd.unitsLut[unitName]
 	if unit == nil {
 		return
 	}
+	fmt.Printf("got /api/stop-unit for unit=%s\n", unitName)
 	procGroup := ts.byUnit[unit]
 
 	force := false
@@ -174,8 +164,6 @@ func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 	}
 	modelLock.Unlock()
 
-	fmt.Printf("got /api/stop-unit for unit=%s\n", unitName)
-
 	http.Redirect(w, req, "/", http.StatusFound)
 }
 
@@ -196,6 +184,10 @@ func main() {
 		panic(err)
 	}
 
+	// TODO event loop, and instead of tracking a "suspect dead list", don't store newly spawned processes at all,
+	//   but instead immediately queue a PollAndPrune() to detect the new proc group (and reset the timer)
+	//   this way incoming requests can also trigger a PollAndPrune() if necessary to keep visitors from waiting
+	//   for a state update.
 	tsPollTimer := time.NewTicker(5 * time.Second)
 	tsPollStop := make(chan bool)
 	ts.PollAndPrune()
@@ -213,8 +205,8 @@ func main() {
 	}()
 
 	http.HandleFunc("/", httpHandler)
-	http.HandleFunc("/api/start-unit", apiStartUnit)
-	http.HandleFunc("/api/stop-unit", apiStopUnit)
+	http.HandleFunc("POST /api/start-unit", apiStartUnit)
+	http.HandleFunc("POST /api/stop-unit", apiStopUnit)
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(*staticFilesDir))))
 	http.ListenAndServe(":8005", nil)
 }
