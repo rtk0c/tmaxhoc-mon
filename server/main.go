@@ -25,10 +25,15 @@ func httpOrphanProcGroup(w http.ResponseWriter, pg *TmuxProcGroup) {
 }
 
 func httpUnitProcGroup(w http.ResponseWriter, unit *UnitDefinition /*nullable*/, pg *TmuxProcGroup) {
+	unitColor := ""
+	if len(unit.Color) > 0 {
+		unitColor = "background-color: " + unit.Color
+	}
+
 	fmt.Fprintf(w, `
-<div id="pg.%[1]s" class="pg pg_unit">
+<div id="pg.%[1]s" class="pg pg_unit" style="%s">
 <p class="pg-name">%[1]s</p>
-`, unit.Name)
+`, unit.Name, unitColor)
 
 	var status, class, action, endpoint string
 	if pg != nil {
