@@ -18,3 +18,23 @@
 .pg-name {
     font-size: 1.3em;
 }
+
+.marker {
+    padding: 2px 4px 2px 4px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 14px;
+}
+.marker-running {
+    background-color: greenyellow;
+}
+.marker-stopped {
+    background-color: firebrick;
+    color: white;
+}
+.marker-stopping {
+    background-color: pink;
+}
+
+/*hack*/
+form { margin-top: 10px; }
