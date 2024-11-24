@@ -1,120 +1,48 @@
 package main
 
 import (
-	"bufio"
-	"fmt"
 	"os"
-	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 type UnitDefinition struct {
 	Name         string
 	Description  string
 	Color        string
-	startCommand []string
-	stopCommand  []string
+	StartCommand []string
+	StopCommand  []string
 }
 
 type Unitd struct {
-	// List of units, lexigraphically sorted by [Unit.Name].
+	// List of Units, lexigraphically sorted by [Unit.Name].
 	// Immutable after load.
-	units []*UnitDefinition
+	Units []*UnitDefinition
 	// Lookup table from [Unit.Name] to the [Unit] itself.
-	// Immutable after load.
+	// Immutable after load. Generated after unmarshal;.
 	unitsLut map[string]*UnitDefinition
-}
-
-func handleOptionEntry(unit *UnitDefinition, key string, value []string) {
-	if unit == nil {
-		// TODO handle global option
-		return
-	}
-
-	switch key {
-	case "Description":
-		unit.Description = strings.Join(value, "<br>")
-	case "Color":
-		if len(value) != 1 {
-			panic("Invalid color '" + strings.Join(value, "\\") + "'")
-		}
-		unit.Color = value[0]
-	case "StartCommand":
-		unit.startCommand = value
-	case "StopCommand":
-		unit.stopCommand = value
-	default:
-		fmt.Println("[ERROR] invalid config option " + key)
-	}
+	// Max number of units allowed to run at a time
+	MaxUnits int
 }
 
 func NewUnitd(unitDefsFile string) (*Unitd, error) {
-	r := &Unitd{
-		units:    make([]*UnitDefinition, 0),
-		unitsLut: make(map[string]*UnitDefinition),
-	}
-
 	f, err := os.Open(unitDefsFile)
 	if err != nil {
 		panic(err)
 	}
-	fbuf := bufio.NewScanner(f)
-	var currUnit *UnitDefinition
-	var currKey string
-	var currValue []string
-	hasKVPair := false
-	for fbuf.Scan() {
-		line := fbuf.Text()
 
-		// Skip empty lines
-		if len(line) == 0 {
-			continue
-		}
-
-		// New section
-		rest := line
-		rest, found1 := strings.CutPrefix(rest, "[")
-		rest, found2 := strings.CutSuffix(rest, "]")
-		if found1 && found2 {
-			if hasKVPair {
-				handleOptionEntry(currUnit, currKey, currValue)
-			}
-			currUnit = &UnitDefinition{Name: rest}
-			r.units = append(r.units, currUnit)
-			r.unitsLut[currUnit.Name] = currUnit
-			hasKVPair = false
-			continue
-		}
-
-		// Multiline values
-		// Append to current K/V pair
-		if hasKVPair {
-			rest, hasIndent := strings.CutPrefix(line, "  ")
-			if hasIndent {
-				currValue = append(currValue, strings.TrimSpace(rest))
-				continue
-			}
-		}
-		// New K/V pair
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 {
-			// Push previous K/V pair
-			// For the last K/V pair before the first section, this will be pushed by the
-			if hasKVPair {
-				handleOptionEntry(currUnit, currKey, currValue)
-			}
-			currKey = strings.TrimSpace(parts[0])
-			currValue = []string{strings.TrimSpace(parts[1])}
-			hasKVPair = true
-			continue
-		}
-
-		// Some other thing
-	}
-	if hasKVPair {
-		handleOptionEntry(currUnit, currKey, currValue)
+	var res Unitd
+	err = toml.NewDecoder(f).Decode(&res)
+	if err != nil {
+		panic(err)
 	}
 
-	return r, nil
+	res.unitsLut = make(map[string]*UnitDefinition)
+	for _, unit := range res.Units {
+		res.unitsLut[unit.Name] = unit
+	}
+
+	return &res, nil
 }
 
 // Nullable

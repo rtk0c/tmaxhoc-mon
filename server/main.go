@@ -81,7 +81,7 @@ func httpProcGroups(w http.ResponseWriter) {
 	modelLock.RLock()
 
 	// Already sorted lexigraphically
-	for _, unit := range unitd.units {
+	for _, unit := range unitd.Units {
 		pg := ts.byUnit[unit]
 		if pg == nil {
 			for _, unalive := range ts.suspectDead {

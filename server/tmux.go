@@ -127,7 +127,7 @@ func (ts *TmuxSession) StartUnit(unit *UnitDefinition) {
 		return
 	}
 
-	ts.spawnProcesses(unit.Name, unit.startCommand...)
+	ts.spawnProcesses(unit.Name, unit.StartCommand...)
 }
 
 func (ts *TmuxSession) StopUnit(unit *UnitDefinition) {
@@ -136,7 +136,7 @@ func (ts *TmuxSession) StopUnit(unit *UnitDefinition) {
 		return
 	}
 
-	ts.SendKeys(procGroup, unit.stopCommand...)
+	ts.SendKeys(procGroup, unit.StopCommand...)
 	procGroup.StoppingAttempt = time.Now()
 	ts.removeProcGroup(procGroup)
 	ts.suspectDead = append(ts.suspectDead, procGroup)
