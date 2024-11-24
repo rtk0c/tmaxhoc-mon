@@ -4,14 +4,13 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
-	"path"
 	"sync"
 	"text/template"
 	"time"
 )
 
+var conf *Config
 var ts *TmuxSession
-var unitd *Unitd
 var modelLock sync.RWMutex
 
 // We specifically want text/template; any "malicious code" would involve being on the other side of the airtight hatchway
@@ -76,7 +75,7 @@ func collectProcGroupInfo() []HttpProcGroup {
 
 	hpg := []HttpProcGroup{}
 	// Already sorted lexigraphically
-	for _, unit := range unitd.Units {
+	for _, unit := range conf.Units {
 		pg := ts.byUnit[unit]
 		if pg == nil {
 			for _, unalive := range ts.suspectDead {
@@ -114,7 +113,7 @@ func httpHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func apiStartUnit(w http.ResponseWriter, req *http.Request) {
-	if len(ts.byWindowIndex) >= 1 {
+	if conf.MaxUnits > 0 && len(ts.byWindowIndex) >= conf.MaxUnits {
 		http.Error(w, `
 Failed to start unit:
 Cannot run more than 1 server at the same time. Please stop something else before starting this server.
@@ -123,7 +122,7 @@ Use the browser back button to go to the server panel again.`, http.StatusForbid
 	}
 
 	unitName := req.FormValue("unit")
-	unit := unitd.unitsLut[unitName]
+	unit := conf.unitsLut[unitName]
 	fmt.Printf("got /api/start-unit for unit=%s\n", unitName)
 
 	if unit != nil {
@@ -137,7 +136,7 @@ Use the browser back button to go to the server panel again.`, http.StatusForbid
 
 func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 	unitName := req.FormValue("unit")
-	unit := unitd.unitsLut[unitName]
+	unit := conf.unitsLut[unitName]
 	fmt.Printf("got /api/stop-unit for unit=%s\n", unitName)
 	if unit == nil {
 		return
@@ -179,21 +178,20 @@ func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 func main() {
 	var err error
 
-	staticFilesDir := flag.String("static-files", ".", "Path to the directory holding static files")
-	unidDefsFile := flag.String("unit-definitions", "", "Path to the config file for unit definitions")
+	configFile := flag.String("config", "config.toml", "Path to the config file")
 	flag.Parse()
 
-	unitd, err = NewUnitd(*unidDefsFile)
+	conf, err = NewConfig(*configFile)
 	if err != nil {
 		panic(err)
 	}
 
-	ts, err = NewTmuxSession(unitd, "Minecraft")
+	ts, err = NewTmuxSession(conf, conf.SessionName)
 	if err != nil {
 		panic(err)
 	}
 
-	res, err := template.ParseFiles(path.Join(*staticFilesDir, "template", "frontpage.tmpl"))
+	res, err := template.ParseFiles(conf.FrontpageTemplate)
 	if err != nil {
 		panic(err)
 	}
@@ -222,6 +220,6 @@ func main() {
 	http.HandleFunc("/", httpHandler)
 	http.HandleFunc("POST /api/start-unit", apiStartUnit)
 	http.HandleFunc("POST /api/stop-unit", apiStopUnit)
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(*staticFilesDir))))
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(conf.StaticFilesDir))))
 	http.ListenAndServe(":8005", nil)
 }

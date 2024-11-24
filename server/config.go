@@ -14,7 +14,7 @@ type UnitDefinition struct {
 	StopCommand  []string
 }
 
-type Unitd struct {
+type Config struct {
 	// List of Units, lexigraphically sorted by [Unit.Name].
 	// Immutable after load.
 	Units []*UnitDefinition
@@ -23,15 +23,27 @@ type Unitd struct {
 	unitsLut map[string]*UnitDefinition
 	// Max number of units allowed to run at a time
 	MaxUnits int
+
+	SessionName string
+
+	// Path to the directory holding static files
+	StaticFilesDir string
+
+	// Template file for the main page
+	FrontpageTemplate string
 }
 
-func NewUnitd(unitDefsFile string) (*Unitd, error) {
-	f, err := os.Open(unitDefsFile)
+func NewConfig(configFile string) (*Config, error) {
+	f, err := os.Open(configFile)
 	if err != nil {
 		panic(err)
 	}
 
-	var res Unitd
+	res := Config{
+		SessionName:       "tmaxhoc-managed",
+		StaticFilesDir:    "static",
+		FrontpageTemplate: "template/frontpage.tmpl",
+	}
 	err = toml.NewDecoder(f).Decode(&res)
 	if err != nil {
 		panic(err)
@@ -46,11 +58,11 @@ func NewUnitd(unitDefsFile string) (*Unitd, error) {
 }
 
 // Nullable
-func (unitd *Unitd) MatchByName(name string) *UnitDefinition {
+func (cfg *Config) MatchByName(name string) *UnitDefinition {
 	// TODO better fuzzy matching algorithm; ideas:
 	// - case insensitive matching
 	// - whitespace/-/_ insensitive matching
 	// - allow unit names to be supplied as a regex, and return a list of candidates?
 	// - some kind of fuzzy scoring algorithm like fzf/sublime text's command palette
-	return unitd.unitsLut[name]
+	return cfg.unitsLut[name]
 }

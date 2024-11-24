@@ -20,8 +20,8 @@ type TmuxSession struct {
 	byUnit map[*UnitDefinition]*TmuxProcGroup
 	// Proc groups that are about to die or is evident to be dead by a conflicting window index.
 	suspectDead []*TmuxProcGroup
-	// Unitd to match proc groups from
-	associatedUnitd *Unitd
+	// Config to match proc groups from
+	associatedConfig *Config
 }
 
 type TmuxProcGroup struct {
@@ -46,7 +46,7 @@ type TmuxProcGroup struct {
 
 var TmuxExecutable = "/bin/tmux"
 
-func NewTmuxSession(unitd *Unitd, session string) (*TmuxSession, error) {
+func NewTmuxSession(config *Config, session string) (*TmuxSession, error) {
 	cmd := exec.Command(TmuxExecutable, "has-session", "-t", session)
 	err := cmd.Run()
 	if err != nil {
@@ -59,10 +59,10 @@ func NewTmuxSession(unitd *Unitd, session string) (*TmuxSession, error) {
 	}
 
 	return &TmuxSession{
-		Name:            session,
-		byWindowIndex:   make(map[int]*TmuxProcGroup),
-		byUnit:          make(map[*UnitDefinition]*TmuxProcGroup),
-		associatedUnitd: unitd,
+		Name:             session,
+		byWindowIndex:    make(map[int]*TmuxProcGroup),
+		byUnit:           make(map[*UnitDefinition]*TmuxProcGroup),
+		associatedConfig: config,
 	}, nil
 }
 
@@ -111,7 +111,7 @@ func (ts *TmuxSession) spawnProcesses(windowName string, commandParts ...string)
 	}
 
 	procGroup := &TmuxProcGroup{
-		Unit:        ts.associatedUnitd.MatchByName(windowName),
+		Unit:        ts.associatedConfig.MatchByName(windowName),
 		Name:        windowName,
 		WindowIndex: windowIndex,
 		Pid:         pid,
@@ -211,7 +211,7 @@ func (ts *TmuxSession) PollAndPrune() error {
 		}
 
 		procGroup = &TmuxProcGroup{
-			Unit:        ts.associatedUnitd.MatchByName(windowName),
+			Unit:        ts.associatedConfig.MatchByName(windowName),
 			Name:        windowName,
 			WindowIndex: windowIndex,
 			Pid:         pid,
