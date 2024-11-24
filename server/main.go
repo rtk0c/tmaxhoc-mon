@@ -68,9 +68,9 @@ func (hpg *HttpProcGroup) Description() string {
 	return ""
 }
 
-func (hpg *HttpProcGroup) ExtraStyles() string {
-	if len(hpg.def.Color) > 0 {
-		return "background-color: " + hpg.def.Color
+func (hpg *HttpProcGroup) UserDefinedAttributes() string {
+	if hpg.def != nil && len(hpg.def.Styles) > 0 {
+		return "style=\"" + hpg.def.Styles + "\""
 	}
 	return ""
 }

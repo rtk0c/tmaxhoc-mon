@@ -9,7 +9,7 @@ import (
 type UnitDefinition struct {
 	Name         string
 	Description  string
-	Color        string
+	Styles       string
 	StartCommand []string
 	StopCommand  []string
 }

@@ -1,5 +1,5 @@
 {{define "proc_group"}}
-<div class="pg pg_unit" style="{{.ExtraStyles}}">
+<div class="pg pg_unit" {{.UserDefinedAttributes}}>
   <p class="pg-name">{{.Name}}</p>
   {{if .IsStopped}}
     <span class="marker marker-stopped">Stopped</span>
@@ -23,7 +23,7 @@
       </form>
     {{end}}
   {{end}}
-  <p class="pg-desc">{{.Description}}</p>
+  <desc class="descg-desc">{{.Description}}</p>
 </div>
 {{end}}
 
