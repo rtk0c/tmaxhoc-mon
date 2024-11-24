@@ -25,8 +25,14 @@ type HttpProcGroup struct {
 	pg  *TmuxProcGroup
 }
 
+// Implies running proc group
 func (hpg *HttpProcGroup) IsOrphan() bool {
-	return hpg.pg != nil && hpg.pg.Orphan
+	return hpg.pg != nil && hpg.pg.Unit == nil
+}
+
+// Implies running proc group
+func (hpg *HttpProcGroup) IsAdopted() bool {
+	return hpg.pg != nil && hpg.IsAdopted()
 }
 
 func (hpg *HttpProcGroup) IsStopped() bool {
@@ -52,7 +58,7 @@ func (hpg *HttpProcGroup) Name() string {
 	if hpg.pg != nil {
 		return hpg.pg.Name
 	}
-	return "<unnamed>"
+	panic("BUG: HttpProcGroup cannot have neither definition nor proc group")
 }
 
 func (hpg *HttpProcGroup) Description() string {

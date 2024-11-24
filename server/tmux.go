@@ -40,8 +40,8 @@ type TmuxProcGroup struct {
 	Dead bool
 	// If true, this process was parsed rather than launched by [TmuxSession.SpawnProcesses].
 	// Note that this property is orthogonal to [TmuxProcGroup.Unit];
-	// an orphan proc group may have an associated unit, and a non-orphan proc group may not have an associated unit.
-	Orphan bool
+	// an adopted proc group may have an associated unit, and a non-adopted proc group may not have an associated unit.
+	Adopted bool
 }
 
 var TmuxExecutable = "/bin/tmux"
@@ -215,7 +215,7 @@ func (ts *TmuxSession) PollAndPrune() error {
 			Name:        windowName,
 			WindowIndex: windowIndex,
 			Pid:         pid,
-			Orphan:      true,
+			Adopted:     true,
 		}
 		ts.insertProcGroup(procGroup)
 		fmt.Printf("polled proc group %d:%s of pid=%d\n", windowIndex, windowName, pid)
