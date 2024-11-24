@@ -31,9 +31,10 @@ func httpUnitProcGroup(w http.ResponseWriter, unit *UnitDefinition /*nullable*/,
 	}
 
 	fmt.Fprintf(w, `
-<div id="pg.%[1]s" class="pg pg_unit" style="%s">
+<div id="pg.%[1]s" class="pg pg_unit" style="%[2]s">
 <p class="pg-name">%[1]s</p>
-`, unit.Name, unitColor)
+<p class="pg-desc">%[3]s</p>
+`, unit.Name, unitColor, unit.Description)
 
 	var status, class, action, endpoint string
 	if pg != nil {

@@ -9,6 +9,7 @@ import (
 
 type UnitDefinition struct {
 	Name         string
+	Description  string
 	Color        string
 	startCommand []string
 	stopCommand  []string
@@ -30,6 +31,8 @@ func handleOptionEntry(unit *UnitDefinition, key string, value []string) {
 	}
 
 	switch key {
+	case "Description":
+		unit.Description = strings.Join(value, "<br>")
 	case "Color":
 		if len(value) != 1 {
 			panic("Invalid color '" + strings.Join(value, "\\") + "'")
