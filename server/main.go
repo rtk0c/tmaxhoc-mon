@@ -4,7 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"path"
 	"sync"
+	"text/template"
 	"time"
 )
 
@@ -12,74 +14,67 @@ var ts *TmuxSession
 var unitd *Unitd
 var modelLock sync.RWMutex
 
-func httpOrphanProcGroup(w http.ResponseWriter, pg *TmuxProcGroup) {
-	fmt.Fprintf(w, `
-<div id="pg.%[1]s" class="pg pg_orphan">
-<p class="pg-name">%[1]s</p>
-`, pg.Name)
+// We specifically want text/template; any "malicious code" would involve being on the other side of the airtight hatchway
+// because all params come from either unit definitions, or tmux window names;
+// access to either already implies arbitary code execution capability
+//
+// This also enables the unit definitions to have HTML like <b>bold</b> in descriptions, etc.
+var frontpage *template.Template
 
-	// Non-unit proc group, cannot exist in a stopped state
-	fmt.Fprint(w, `<span class="marker marker-running">Running</span>`)
-
-	fmt.Fprintln(w, "</div>")
+type HttpProcGroup struct {
+	def *UnitDefinition
+	pg  *TmuxProcGroup
 }
 
-func httpUnitProcGroup(w http.ResponseWriter, unit *UnitDefinition /*nullable*/, pg *TmuxProcGroup) {
-	unitColor := ""
-	if len(unit.Color) > 0 {
-		unitColor = "background-color: " + unit.Color
-	}
-
-	fmt.Fprintf(w, `
-<div id="pg.%[1]s" class="pg pg_unit" style="%[2]s">
-<p class="pg-name">%[1]s</p>
-<p class="pg-desc">%[3]s</p>
-`, unit.Name, unitColor, unit.Description)
-
-	var status, class, action, endpoint string
-	if pg != nil {
-		if isStopping(pg) {
-			status = "Stopping"
-			class = "marker-stopping"
-			action = ""
-			endpoint = ""
-		} else {
-			status = "Running"
-			class = "marker-running"
-			action = "Stop"
-			endpoint = "stop-unit"
-		}
-	} else {
-		status = "Stopped"
-		class = "marker-stopped"
-		action = "Start"
-		endpoint = "start-unit"
-	}
-
-	fmt.Fprintf(w, `<span class="marker %s">%s</span>`, class, status)
-	if len(action) > 0 {
-		fmt.Fprintf(w, `
-<form method="post" action="/api/%s">
-<input type="hidden" name="unit" value="%s">
-<input type="submit" value="%s">
-</form>`, endpoint, unit.Name, action)
-	}
-	if pg != nil && forceStopAllowed(pg) {
-		fmt.Fprintf(w, `
-<form method="post" action="/api/stop-unit">
-<input type="hidden" name="unit" value="%s">
-<input type="hidden" name="force" value="true">
-<input type="submit" value="Force stop">
-</form>`, unit.Name)
-	}
-
-	fmt.Fprintln(w, "</div>")
+func (hpg *HttpProcGroup) IsOrphan() bool {
+	return hpg.pg != nil && hpg.pg.Orphan
 }
 
-func httpProcGroups(w http.ResponseWriter) {
-	fmt.Fprintln(w, `<div class="proc-group-container">`)
+func (hpg *HttpProcGroup) IsStopped() bool {
+	return hpg.pg == nil
+}
+
+func (hpg *HttpProcGroup) IsStopping() bool {
+	return hpg.pg != nil && !hpg.pg.StoppingAttempt.IsZero()
+}
+
+func (hpg *HttpProcGroup) IsRunning() bool {
+	return hpg.pg != nil && hpg.pg.StoppingAttempt.IsZero()
+}
+
+func (hpg *HttpProcGroup) ForceStopAllowed() bool {
+	return hpg.IsStopping() && time.Since(hpg.pg.StoppingAttempt) > 10*time.Second
+}
+
+func (hpg *HttpProcGroup) Name() string {
+	if hpg.def != nil {
+		return hpg.def.Name
+	}
+	if hpg.pg != nil {
+		return hpg.pg.Name
+	}
+	return "<unnamed>"
+}
+
+func (hpg *HttpProcGroup) Description() string {
+	if hpg.def != nil {
+		return hpg.def.Description
+	}
+	return ""
+}
+
+func (hpg *HttpProcGroup) ExtraStyles() string {
+	if len(hpg.def.Color) > 0 {
+		return "background-color: " + hpg.def.Color
+	}
+	return ""
+}
+
+func collectProcGroupInfo() []HttpProcGroup {
 	modelLock.RLock()
+	defer modelLock.RUnlock()
 
+	hpg := []HttpProcGroup{}
 	// Already sorted lexigraphically
 	for _, unit := range unitd.Units {
 		pg := ts.byUnit[unit]
@@ -91,33 +86,31 @@ func httpProcGroups(w http.ResponseWriter) {
 				}
 			}
 		}
-		httpUnitProcGroup(w, unit, pg)
+
+		hpg = append(hpg, HttpProcGroup{
+			def: unit,
+			pg:  pg,
+		})
 	}
 	// TODO sort
 	for _, procGroup := range ts.byWindowIndex {
 		if procGroup.Unit == nil {
-			httpOrphanProcGroup(w, procGroup)
+			hpg = append(hpg, HttpProcGroup{
+				def: nil,
+				pg:  procGroup,
+			})
 		}
 	}
 
-	modelLock.RUnlock()
-	fmt.Fprintln(w, `</div>`)
+	return hpg
 }
 
 func httpHandler(w http.ResponseWriter, req *http.Request) {
-	fmt.Fprintln(w, `
-<!DOCTYPE html><html>
-<head>
-<title>tmaxhoc</title>
-<link rel="stylesheet" href="/static/css/main.css" />
-</head>
-<body>`)
-
-	httpProcGroups(w)
-
-	fmt.Fprintln(w, `
-</body>
-</html>`)
+	data := collectProcGroupInfo()
+	err := frontpage.Execute(w, data)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func apiStartUnit(w http.ResponseWriter, req *http.Request) {
@@ -142,14 +135,6 @@ Use the browser back button to go to the server panel again.`, http.StatusForbid
 	http.Redirect(w, req, "/", http.StatusFound)
 }
 
-func isStopping(pg *TmuxProcGroup) bool {
-	return !pg.StoppingAttempt.IsZero()
-}
-
-func forceStopAllowed(pg *TmuxProcGroup) bool {
-	return isStopping(pg) && time.Since(pg.StoppingAttempt) > 10*time.Second
-}
-
 func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 	unitName := req.FormValue("unit")
 	unit := unitd.unitsLut[unitName]
@@ -171,19 +156,19 @@ func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 
 	modelLock.Lock()
 
-	procGroup := ts.byUnit[unit]
-	if procGroup == nil {
+	hpg := HttpProcGroup{def: unit, pg: ts.byUnit[unit]}
+	if hpg.pg == nil {
 		modelLock.Unlock()
 		return
 	}
-	if force && !forceStopAllowed(procGroup) {
+	if force && hpg.ForceStopAllowed() {
 		http.Error(w, "force kill not allowed: not enough time has passed since stopping attempt", http.StatusBadRequest)
 		modelLock.Unlock()
 		return
 	}
 
 	if force {
-		ts.ForceKillProcGroup(procGroup)
+		ts.ForceKillProcGroup(hpg.pg)
 	} else {
 		ts.StopUnit(unit)
 	}
@@ -207,6 +192,12 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	res, err := template.ParseFiles(path.Join(*staticFilesDir, "template", "frontpage.tmpl"))
+	if err != nil {
+		panic(err)
+	}
+	frontpage = res
 
 	// TODO event loop, and instead of tracking a "suspect dead list", don't store newly spawned processes at all,
 	//   but instead immediately queue a PollAndPrune() to detect the new proc group (and reset the timer)
