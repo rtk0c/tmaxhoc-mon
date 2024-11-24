@@ -1,7 +1,6 @@
 {{define "proc_group"}}
 <div class="pg pg_unit" style="{{.ExtraStyles}}">
   <p class="pg-name">{{.Name}}</p>
-  <p class="pg-desc">{{.Description}}</p>
   {{if .IsStopped}}
     <span class="marker marker-stopped">Stopped</span>
     <form class="pg-action" method="post" action="/api/start-unit">
@@ -24,6 +23,7 @@
       </form>
     {{end}}
   {{end}}
+  <p class="pg-desc">{{.Description}}</p>
 </div>
 {{end}}
 

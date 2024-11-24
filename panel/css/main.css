@@ -12,15 +12,19 @@
   width: 300px;
 }
 .pg_orphan {
+  border-style: dashed;
 }
 .pg_unit {
+  border-style: solid;
 }
 
 .pg-name {
   font-size: 1.3em;
+  margin: 0;
 }
 
 .pg-action {
+  display: inline;
 }
 
 .marker {
@@ -39,6 +43,3 @@
 .marker-stopping {
   background-color: pink;
 }
-
-/*hack*/
-form { margin-top: 10px; }
