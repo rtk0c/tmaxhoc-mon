@@ -232,6 +232,6 @@ func main() {
 	http.HandleFunc("/", httpHandler)
 	http.HandleFunc("POST /api/start-unit", apiStartUnit)
 	http.HandleFunc("POST /api/stop-unit", apiStopUnit)
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(conf.StaticFilesDir))))
+	http.Handle("/static/", http.FileServer(http.Dir(conf.StaticFilesDir)))
 	http.ListenAndServe(":8005", nil)
 }
