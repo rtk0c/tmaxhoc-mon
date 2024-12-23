@@ -84,6 +84,10 @@ func collectProcGroupInfo() []HttpProcGroup {
 	hpg := []HttpProcGroup{}
 	// Already in display order
 	for _, unit := range conf.Units {
+		if unit.Hidden {
+			continue
+		}
+
 		pg := ts.byUnit[unit]
 		if pg == nil {
 			for _, unalive := range ts.suspectDead {

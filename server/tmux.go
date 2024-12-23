@@ -91,9 +91,7 @@ func (ts *TmuxSession) removeProcGroup(procGroup *TmuxProcGroup) {
 // commandParts is the command to execute to starting the process. See tmux *shell_command* a full shell command for
 // starting the service. For an abbreviated example, `miniserve -p 1234` results in `/bin/sh -c 'miniserv -p 1234'`,
 // whereas `miniserve` `-p` `1234` results in running miniserve directly with the arguments.
-//
-// TODO multiple processes
-func (ts *TmuxSession) spawnProcesses(windowName string, commandParts ...string) (*TmuxProcGroup, error) {
+func (ts *TmuxSession) spawnProcess(windowName string, commandParts ...string) (*TmuxProcGroup, error) {
 	cmdArglist := []string{"new-window", "-t", ts.Name + ":", "-n", windowName, "-P", "-F", "#{window_index}:#{pane_pid}"}
 	cmdArglist = append(cmdArglist, commandParts...)
 	cmd := exec.Command(TmuxExecutable, cmdArglist...)
@@ -127,7 +125,13 @@ func (ts *TmuxSession) StartUnit(unit *UnitDefinition) {
 		return
 	}
 
-	ts.spawnProcesses(unit.Name, unit.StartCommand...)
+	for _, subpart := range unit.subpartsRef {
+		ts.StartUnit(subpart)
+	}
+
+	if len(unit.StartCommand) > 0 {
+		ts.spawnProcess(unit.Name, unit.StartCommand...)
+	}
 }
 
 func (ts *TmuxSession) StopUnit(unit *UnitDefinition) {
@@ -140,6 +144,10 @@ func (ts *TmuxSession) StopUnit(unit *UnitDefinition) {
 	procGroup.StoppingAttempt = time.Now()
 	ts.removeProcGroup(procGroup)
 	ts.suspectDead = append(ts.suspectDead, procGroup)
+
+	for _, subpart := range unit.subpartsRef {
+		ts.StopUnit(subpart)
+	}
 }
 
 func (ts *TmuxSession) ForceKillProcGroup(procGroup *TmuxProcGroup) {
@@ -220,6 +228,8 @@ func (ts *TmuxSession) PollAndPrune() error {
 		ts.insertProcGroup(procGroup)
 		fmt.Printf("polled proc group %d:%s of pid=%d\n", windowIndex, windowName, pid)
 	}
+
+	// TODO handle that once subparts are dead, mark parent as dead too
 
 	return nil
 }

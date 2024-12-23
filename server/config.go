@@ -7,19 +7,33 @@ import (
 )
 
 type UnitDefinition struct {
-	Name         string
-	Description  string
-	Styles       string
+	Name        string
+	Description string
+	Styles      string // Written as HTML styles attribute in the panel.
+
+	// Arguments to `tmux new-window` (see [TmuxSession.spawnProcess]).
+	// If empty, this unit is dummy, and will never spawn any process.
 	StartCommand []string
-	StopCommand  []string
+
+	// Arguments to `tmux send-command`
+	StopCommand []string
+
+	// If true, this unit is not displayed in the panel.
+	Hidden bool
+
+	// Dependencies listed by [UnitDefinition.Name], which are started before this starts, and stopped after this stops.
+	Subparts []string
+	// Dependencies references.
+	// Generated after unmarshal.
+	subpartsRef []*UnitDefinition
 }
 
 type Config struct {
 	// List of [UnitDefinition]s, in the same order as the config file.
-	// Will also be displayed on the HTML panel in this order.
+	// Will also be displayed on the panel in this order.
 	// Immutable after load.
 	Units []*UnitDefinition
-	// Lookup table from [Unit.Name] to the [Unit] itself.
+	// Lookup table from [UnitDefinition.Name] to the [UnitDefinition] itself.
 	// Immutable after load. Generated after unmarshal;.
 	unitsLut map[string]*UnitDefinition
 	// Max number of units allowed to run at a time
@@ -53,6 +67,12 @@ func NewConfig(configFile string) (*Config, error) {
 	res.unitsLut = make(map[string]*UnitDefinition)
 	for _, unit := range res.Units {
 		res.unitsLut[unit.Name] = unit
+	}
+	for _, unit := range res.Units {
+		unit.subpartsRef = make([]*UnitDefinition, len(unit.Subparts))
+		for i, subpartName := range unit.Subparts {
+			unit.subpartsRef[i] = res.unitsLut[subpartName]
+		}
 	}
 
 	return &res, nil
