@@ -15,7 +15,8 @@ type UnitDefinition struct {
 }
 
 type Config struct {
-	// List of Units, lexigraphically sorted by [Unit.Name].
+	// List of [UnitDefinition]s, in the same order as the config file.
+	// Will also be displayed on the HTML panel in this order.
 	// Immutable after load.
 	Units []*UnitDefinition
 	// Lookup table from [Unit.Name] to the [Unit] itself.

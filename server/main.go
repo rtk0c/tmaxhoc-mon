@@ -80,7 +80,7 @@ func collectProcGroupInfo() []HttpProcGroup {
 	defer modelLock.RUnlock()
 
 	hpg := []HttpProcGroup{}
-	// Already sorted lexigraphically
+	// Already in display order
 	for _, unit := range conf.Units {
 		pg := ts.byUnit[unit]
 		if pg == nil {
