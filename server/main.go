@@ -27,12 +27,14 @@ type HttpProcGroup struct {
 
 // Implies running proc group
 func (hpg *HttpProcGroup) IsOrphan() bool {
+	// Orphan proc group is never stopped by us, so no need to check stopping attempt.
+	// Once the process is dead, the proc group will be pruned directly.
 	return hpg.pg != nil && hpg.pg.Unit == nil
 }
 
 // Implies running proc group
 func (hpg *HttpProcGroup) IsAdopted() bool {
-	return hpg.pg != nil && hpg.IsAdopted()
+	return hpg.pg != nil && hpg.pg.Adopted
 }
 
 func (hpg *HttpProcGroup) IsStopped() bool {
