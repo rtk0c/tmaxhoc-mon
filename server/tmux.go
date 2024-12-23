@@ -15,19 +15,14 @@ type TmuxSession struct {
 	// LUT from [TmuxProcGroup.WindowIndex] to proc groups.
 	// Every proc group managed by this session must be inside this map.
 	byWindowIndex map[int]*TmuxProcGroup
-	// LUT from [TmuxProcGroup.Unit] to proc groups.
-	// A proc group managed by this session is in this map only if it has an associated unit.
-	byUnit map[*UnitDefinition]*TmuxProcGroup
 	// Proc groups that are about to die or is evident to be dead by a conflicting window index.
 	suspectDead []*TmuxProcGroup
-	// Config to match proc groups from
-	associatedConfig *Config
+
+	onProcSpawned func(*TmuxProcGroup)
+	onProcPruned  func(*TmuxProcGroup)
 }
 
 type TmuxProcGroup struct {
-	// Nullable
-	// The unit associated with this proc groups
-	Unit        *UnitDefinition
 	Name        string
 	WindowIndex int
 	Pid         int
@@ -46,12 +41,12 @@ type TmuxProcGroup struct {
 
 var TmuxExecutable = "/bin/tmux"
 
-func NewTmuxSession(config *Config, session string) (*TmuxSession, error) {
-	cmd := exec.Command(TmuxExecutable, "has-session", "-t", session)
+func NewTmuxSession(sessionName string) (*TmuxSession, error) {
+	cmd := exec.Command(TmuxExecutable, "has-session", "-t", sessionName)
 	err := cmd.Run()
 	if err != nil {
 		// Dummy window to keep the session alive
-		cmd := exec.Command(TmuxExecutable, "new-session", "-d", "-s", session, "/bin/sh")
+		cmd := exec.Command(TmuxExecutable, "new-session", "-d", "-s", sessionName, "/bin/sh")
 		_, err := cmd.Output()
 		if err != nil {
 			return nil, fmt.Errorf("failed to create tmux session: %w", err)
@@ -59,10 +54,8 @@ func NewTmuxSession(config *Config, session string) (*TmuxSession, error) {
 	}
 
 	return &TmuxSession{
-		Name:             session,
-		byWindowIndex:    make(map[int]*TmuxProcGroup),
-		byUnit:           make(map[*UnitDefinition]*TmuxProcGroup),
-		associatedConfig: config,
+		Name:          sessionName,
+		byWindowIndex: make(map[int]*TmuxProcGroup),
 	}, nil
 }
 
@@ -71,19 +64,18 @@ func (ts *TmuxSession) insertProcGroup(procGroup *TmuxProcGroup) {
 	if old != nil {
 		// Not needed. Insertion below overrides it anyways.
 		/* delete(ts.byWindowIndex, old.WindowIndex) */
-		delete(ts.byUnit, old.Unit)
 		ts.suspectDead = append(ts.suspectDead, old)
 	}
 
 	ts.byWindowIndex[procGroup.WindowIndex] = procGroup
-	if procGroup.Unit != nil {
-		ts.byUnit[procGroup.Unit] = procGroup
-	}
+
+	ts.onProcSpawned(procGroup)
 }
 
 func (ts *TmuxSession) removeProcGroup(procGroup *TmuxProcGroup) {
 	delete(ts.byWindowIndex, procGroup.WindowIndex)
-	delete(ts.byUnit, procGroup.Unit)
+
+	ts.onProcPruned(procGroup)
 }
 
 // windowName is an arbitary tmux window name for running the processes in.
@@ -109,7 +101,6 @@ func (ts *TmuxSession) spawnProcess(windowName string, commandParts ...string) (
 	}
 
 	procGroup := &TmuxProcGroup{
-		Unit:        ts.associatedConfig.MatchByName(windowName),
 		Name:        windowName,
 		WindowIndex: windowIndex,
 		Pid:         pid,
@@ -117,37 +108,6 @@ func (ts *TmuxSession) spawnProcess(windowName string, commandParts ...string) (
 	ts.insertProcGroup(procGroup)
 	fmt.Printf("spawned proc group %d:%s of pid=%d\n", windowIndex, windowName, pid)
 	return procGroup, nil
-}
-
-func (ts *TmuxSession) StartUnit(unit *UnitDefinition) {
-	procGroup := ts.byUnit[unit]
-	if procGroup != nil {
-		return
-	}
-
-	for _, subpart := range unit.subpartsRef {
-		ts.StartUnit(subpart)
-	}
-
-	if len(unit.StartCommand) > 0 {
-		ts.spawnProcess(unit.Name, unit.StartCommand...)
-	}
-}
-
-func (ts *TmuxSession) StopUnit(unit *UnitDefinition) {
-	procGroup := ts.byUnit[unit]
-	if procGroup == nil {
-		return
-	}
-
-	ts.SendKeys(procGroup, unit.StopCommand...)
-	procGroup.StoppingAttempt = time.Now()
-	ts.removeProcGroup(procGroup)
-	ts.suspectDead = append(ts.suspectDead, procGroup)
-
-	for _, subpart := range unit.subpartsRef {
-		ts.StopUnit(subpart)
-	}
 }
 
 func (ts *TmuxSession) ForceKillProcGroup(procGroup *TmuxProcGroup) {
@@ -219,7 +179,6 @@ func (ts *TmuxSession) PollAndPrune() error {
 		}
 
 		procGroup = &TmuxProcGroup{
-			Unit:        ts.associatedConfig.MatchByName(windowName),
 			Name:        windowName,
 			WindowIndex: windowIndex,
 			Pid:         pid,
@@ -228,8 +187,6 @@ func (ts *TmuxSession) PollAndPrune() error {
 		ts.insertProcGroup(procGroup)
 		fmt.Printf("polled proc group %d:%s of pid=%d\n", windowIndex, windowName, pid)
 	}
-
-	// TODO handle that once subparts are dead, mark parent as dead too
 
 	return nil
 }

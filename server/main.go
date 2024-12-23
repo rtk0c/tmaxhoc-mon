@@ -198,7 +198,7 @@ func main() {
 		panic(err)
 	}
 
-	ts, err = NewTmuxSession(conf, conf.SessionName)
+	ts, err = NewTmuxSession(conf.SessionName)
 	if err != nil {
 		panic(err)
 	}
