@@ -1,27 +1,27 @@
-.proc-group-container {
+.units-container {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 0.5em;
 }
 
-.pg {
+.unit {
   border: 1.5px solid black;
   border-radius: 8px;
   padding: 0.5em;
   width: 300px;
 }
 
-.pg-name {
+.unit-name {
   font-size: 1.3em;
   margin: 0;
 }
 
-.pg-action {
+.unit-action {
   display: inline;
 }
 
-.pg-desc {
+.unit-desc {
   margin: 16px 0 16px 0;
 }
 

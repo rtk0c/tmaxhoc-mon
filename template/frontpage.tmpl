@@ -1,29 +1,29 @@
 {{define "proc_group"}}
-<div class="pg pg_unit" {{.UserDefinedAttributes}}>
-  <p class="pg-name">{{.Name}}</p>
+<div class="unit" {{.UserDefinedAttributes}}>
+  <p class="unit-name">{{.Name}}</p>
   {{if .IsStopped}}
     <span class="marker marker-stopped">Stopped</span>
-    <form class="pg-action" method="post" action="/api/start-unit">
+    <form class="unit-action" method="post" action="/api/start-unit">
       <input type="hidden" name="unit" value="{{.Name}}">
       <input type="submit" value="Start">
     </form>
   {{else if .IsRunning}}
     <span class="marker marker-running">Running</span>
-    <form class="pg-action" method="post" action="/api/stop-unit">
+    <form class="unit-action" method="post" action="/api/stop-unit">
       <input type="hidden" name="unit" value="{{.Name}}">
       <input type="submit" value="Stop">
     </form>
   {{else}}
     <span class="marker marker-stopping">Stopping</span>
     {{if .ForceStopAllowed}}
-      <form class="pg-action" method="post" action="/api/stop-unit">
+      <form class="unit-action" method="post" action="/api/stop-unit">
         <input type="hidden" name="unit" value="{{.Name}}">
         <input type="hidden" name="force" value="true">
         <input type="submit" value="Force stop">
       </form>
     {{end}}
   {{end}}
-  <div class="pg-desc">{{.Description}}</div>
+  <div class="unit-desc">{{.Description}}</div>
 </div>
 {{end}}
 
@@ -35,7 +35,7 @@
   <script src="/static/js/main.js"></script>
 </head>
 <body>
-  <div class="proc-group-container">
+  <div class="units-container">
   {{range .}}
     {{template "proc_group" .}}
   {{end}}
