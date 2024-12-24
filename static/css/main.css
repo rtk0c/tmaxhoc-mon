@@ -11,12 +11,6 @@
   padding: 0.5em;
   width: 300px;
 }
-.pg_orphan {
-  border-style: dashed;
-}
-.pg_unit {
-  border-style: solid;
-}
 
 .pg-name {
   font-size: 1.3em;

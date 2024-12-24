@@ -37,14 +37,7 @@
 <body>
   <div class="proc-group-container">
   {{range .}}
-    {{if .IsOrphan}}
-      <div class="pg pg_orphan">
-        <p class="pg-name">{{.Name}}</p>
-        <span class="marker marker-running">Running</span>
-      </div>
-    {{else}}
-      {{template "proc_group" .}}
-    {{end}}
+    {{template "proc_group" .}}
   {{end}}
   </div>
 </body>
