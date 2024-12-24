@@ -14,15 +14,15 @@ type TmuxSession struct {
 	Name string
 	// LUT from [TmuxProcGroup.WindowIndex] to proc groups.
 	// Every proc group managed by this session must be inside this map.
-	byWindowIndex map[int]*TmuxProcGroup
+	byWindowIndex map[int]*TmuxProcess
 	// Proc groups that are about to die or is evident to be dead by a conflicting window index.
-	suspectDead []*TmuxProcGroup
+	suspectDead []*TmuxProcess
 
-	onProcSpawned func(*TmuxProcGroup)
-	onProcPruned  func(*TmuxProcGroup)
+	onProcSpawned func(*TmuxProcess)
+	onProcPruned  func(*TmuxProcess)
 }
 
-type TmuxProcGroup struct {
+type TmuxProcess struct {
 	Name        string
 	WindowIndex int
 	Pid         int
@@ -55,27 +55,27 @@ func NewTmuxSession(sessionName string) (*TmuxSession, error) {
 
 	return &TmuxSession{
 		Name:          sessionName,
-		byWindowIndex: make(map[int]*TmuxProcGroup),
+		byWindowIndex: make(map[int]*TmuxProcess),
 	}, nil
 }
 
-func (ts *TmuxSession) insertProcGroup(procGroup *TmuxProcGroup) {
-	old := ts.byWindowIndex[procGroup.WindowIndex]
+func (ts *TmuxSession) insertProcGroup(proc *TmuxProcess) {
+	old := ts.byWindowIndex[proc.WindowIndex]
 	if old != nil {
 		// Not needed. Insertion below overrides it anyways.
 		/* delete(ts.byWindowIndex, old.WindowIndex) */
 		ts.suspectDead = append(ts.suspectDead, old)
 	}
 
-	ts.byWindowIndex[procGroup.WindowIndex] = procGroup
+	ts.byWindowIndex[proc.WindowIndex] = proc
 
-	ts.onProcSpawned(procGroup)
+	ts.onProcSpawned(proc)
 }
 
-func (ts *TmuxSession) removeProcGroup(procGroup *TmuxProcGroup) {
-	delete(ts.byWindowIndex, procGroup.WindowIndex)
+func (ts *TmuxSession) removeProcGroup(proc *TmuxProcess) {
+	delete(ts.byWindowIndex, proc.WindowIndex)
 
-	ts.onProcPruned(procGroup)
+	ts.onProcPruned(proc)
 }
 
 // windowName is an arbitary tmux window name for running the processes in.
@@ -83,7 +83,7 @@ func (ts *TmuxSession) removeProcGroup(procGroup *TmuxProcGroup) {
 // commandParts is the command to execute to starting the process. See tmux *shell_command* a full shell command for
 // starting the service. For an abbreviated example, `miniserve -p 1234` results in `/bin/sh -c 'miniserv -p 1234'`,
 // whereas `miniserve` `-p` `1234` results in running miniserve directly with the arguments.
-func (ts *TmuxSession) spawnProcess(windowName string, commandParts ...string) (*TmuxProcGroup, error) {
+func (ts *TmuxSession) spawnProcess(windowName string, commandParts ...string) (*TmuxProcess, error) {
 	cmdArglist := []string{"new-window", "-t", ts.Name + ":", "-n", windowName, "-P", "-F", "#{window_index}:#{pane_pid}"}
 	cmdArglist = append(cmdArglist, commandParts...)
 	cmd := exec.Command(TmuxExecutable, cmdArglist...)
@@ -100,31 +100,31 @@ func (ts *TmuxSession) spawnProcess(windowName string, commandParts ...string) (
 		return nil, err
 	}
 
-	procGroup := &TmuxProcGroup{
+	proc := &TmuxProcess{
 		Name:        windowName,
 		WindowIndex: windowIndex,
 		Pid:         pid,
 	}
-	ts.insertProcGroup(procGroup)
+	ts.insertProcGroup(proc)
 	fmt.Printf("spawned proc group %d:%s of pid=%d\n", windowIndex, windowName, pid)
-	return procGroup, nil
+	return proc, nil
 }
 
-func (ts *TmuxSession) ForceKillProcGroup(procGroup *TmuxProcGroup) {
-	err := syscall.Kill(procGroup.Pid, syscall.SIGKILL)
+func (ts *TmuxSession) ForceKillProcGroup(proc *TmuxProcess) {
+	err := syscall.Kill(proc.Pid, syscall.SIGKILL)
 	if err != nil {
-		fmt.Printf("[ERROR] failed to force kill pid=%d: %s\n", procGroup.Pid, err)
+		fmt.Printf("[ERROR] failed to force kill pid=%d: %s\n", proc.Pid, err)
 	}
 }
 
 func (ts *TmuxSession) PollAndPrune() error {
 	//// Detect dead proc groups, and prune them ////
-	for _, procGroup := range ts.byWindowIndex {
-		err := syscall.Kill(procGroup.Pid, syscall.Signal(0))
+	for _, proc := range ts.byWindowIndex {
+		err := syscall.Kill(proc.Pid, syscall.Signal(0))
 		if err != nil {
-			fmt.Printf("removing dead proc group %d:%s of pid=%d\n", procGroup.WindowIndex, procGroup.Name, procGroup.Pid)
-			ts.removeProcGroup(procGroup)
-			procGroup.Dead = true
+			fmt.Printf("removing dead proc group %d:%s of pid=%d\n", proc.WindowIndex, proc.Name, proc.Pid)
+			ts.removeProcGroup(proc)
+			proc.Dead = true
 		}
 	}
 	// Technically, the "last unprocessed proc group" but that's a long name
@@ -170,28 +170,28 @@ func (ts *TmuxSession) PollAndPrune() error {
 		}
 		windowName := parts[2]
 
-		procGroup := ts.byWindowIndex[windowIndex]
-		if procGroup != nil {
+		proc := ts.byWindowIndex[windowIndex]
+		if proc != nil {
 			continue
 		}
-		if slices.Contains(ts.suspectDead, procGroup) {
+		if slices.Contains(ts.suspectDead, proc) {
 			continue
 		}
 
-		procGroup = &TmuxProcGroup{
+		proc = &TmuxProcess{
 			Name:        windowName,
 			WindowIndex: windowIndex,
 			Pid:         pid,
 			Adopted:     true,
 		}
-		ts.insertProcGroup(procGroup)
+		ts.insertProcGroup(proc)
 		fmt.Printf("polled proc group %d:%s of pid=%d\n", windowIndex, windowName, pid)
 	}
 
 	return nil
 }
 
-func (session *TmuxSession) SendKeys(serv *TmuxProcGroup, keys ...string) error {
+func (session *TmuxSession) SendKeys(serv *TmuxProcess, keys ...string) error {
 	cmdArglist := []string{"send-keys", "-t", session.Name + ":" + serv.Name}
 	cmdArglist = append(cmdArglist, keys...)
 	cmd := exec.Command(TmuxExecutable, cmdArglist...)

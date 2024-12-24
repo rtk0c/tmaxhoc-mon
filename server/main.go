@@ -21,37 +21,37 @@ var modelLock sync.RWMutex
 var frontpage *template.Template
 
 type HttpProcGroup struct {
-	def *UnitDefinition
-	pg  *TmuxProcGroup
+	def  *UnitDefinition
+	proc *TmuxProcess
 }
 
 // Implies running proc group
 func (hpg *HttpProcGroup) IsAdopted() bool {
-	return hpg.pg != nil && hpg.pg.Adopted
+	return hpg.proc != nil && hpg.proc.Adopted
 }
 
 func (hpg *HttpProcGroup) IsStopped() bool {
-	return hpg.pg == nil
+	return hpg.proc == nil
 }
 
 func (hpg *HttpProcGroup) IsStopping() bool {
-	return hpg.pg != nil && !hpg.pg.StoppingAttempt.IsZero()
+	return hpg.proc != nil && !hpg.proc.StoppingAttempt.IsZero()
 }
 
 func (hpg *HttpProcGroup) IsRunning() bool {
-	return hpg.pg != nil && hpg.pg.StoppingAttempt.IsZero()
+	return hpg.proc != nil && hpg.proc.StoppingAttempt.IsZero()
 }
 
 func (hpg *HttpProcGroup) ForceStopAllowed() bool {
-	return hpg.IsStopping() && time.Since(hpg.pg.StoppingAttempt) > 10*time.Second
+	return hpg.IsStopping() && time.Since(hpg.proc.StoppingAttempt) > 10*time.Second
 }
 
 func (hpg *HttpProcGroup) Name() string {
 	if hpg.def != nil {
 		return hpg.def.Name
 	}
-	if hpg.pg != nil {
-		return hpg.pg.Name
+	if hpg.proc != nil {
+		return hpg.proc.Name
 	}
 	panic("BUG: HttpProcGroup cannot have neither definition nor proc group")
 }
@@ -81,19 +81,19 @@ func collectProcGroupInfo() []HttpProcGroup {
 			continue
 		}
 
-		pg := ts.byUnit[unit]
-		if pg == nil {
+		proc := ts.byUnit[unit]
+		if proc == nil {
 			for _, unalive := range ts.suspectDead {
 				if unalive.Unit == unit {
-					pg = unalive
+					proc = unalive
 					break
 				}
 			}
 		}
 
 		hpg = append(hpg, HttpProcGroup{
-			def: unit,
-			pg:  pg,
+			def:  unit,
+			proc: proc,
 		})
 	}
 
@@ -151,8 +151,8 @@ func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 
 	modelLock.Lock()
 
-	hpg := HttpProcGroup{def: unit, pg: ts.byUnit[unit]}
-	if hpg.pg == nil {
+	hpg := HttpProcGroup{def: unit, proc: ts.byUnit[unit]}
+	if hpg.proc == nil {
 		modelLock.Unlock()
 		return
 	}
@@ -163,7 +163,7 @@ func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if force {
-		ts.ForceKillProcGroup(hpg.pg)
+		ts.ForceKillProcGroup(hpg.proc)
 	} else {
 		ts.StopUnit(unit)
 	}
