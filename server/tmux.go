@@ -14,7 +14,7 @@ type TmuxSession struct {
 	Name string
 	// LUT from [TmuxProcess.WindowIndex] to proc groups.
 	// Every proc group managed by this session must be inside this map.
-	byWindowIndex map[int]*TmuxProcess
+	byPaneId map[int]*TmuxProcess
 	// Proc groups that are about to die or is evident to be dead by a conflicting window index.
 	suspectDead []*TmuxProcess
 
@@ -22,20 +22,33 @@ type TmuxSession struct {
 	onProcPruned  func(*TmuxProcess)
 }
 
+func (ts *TmuxSession) targetSession() string {
+	return ts.Name + ":"
+}
+
 type TmuxProcess struct {
-	Name        string
-	WindowIndex int
-	Pid         int
+	Name string
+
+	// Unique pane id in the form of '%<int>' identifying the pane
+	PaneId int
+	// PID of the process running in this pane
+	Pid int
+
 	// If non-zero, a stop command has been issued but we're not sure it has died.
 	StoppingAttempt time.Time
 	// If true, this process has exited and been removed by [TmuxSession.PollAndPrune].
 	// This field is for let library users to drop the reference to this proc group after it died,
 	// without having to do a lookup in the [TmuxService].
 	Dead bool
+
 	// If true, this process was parsed rather than launched by [TmuxSession.SpawnProcesses].
 	// Note that this property is orthogonal to [TmuxProcess.Unit];
 	// an adopted proc group may have an associated unit, and a non-adopted proc group may not have an associated unit.
 	Adopted bool
+}
+
+func (proc *TmuxProcess) targetPane() string {
+	return "%" + strconv.Itoa(proc.PaneId)
 }
 
 var TmuxExecutable = "/bin/tmux"
@@ -53,35 +66,35 @@ func NewTmuxSession(sessionName string) (*TmuxSession, error) {
 	}
 
 	return &TmuxSession{
-		Name:          sessionName,
-		byWindowIndex: make(map[int]*TmuxProcess),
+		Name:     sessionName,
+		byPaneId: make(map[int]*TmuxProcess),
 	}, nil
 }
 
-func (ts *TmuxSession) insertProcGroup(proc *TmuxProcess) {
-	old := ts.byWindowIndex[proc.WindowIndex]
+func (ts *TmuxSession) addProcess(proc *TmuxProcess) {
+	old := ts.byPaneId[proc.PaneId]
 	if old != nil {
 		// Not needed. Insertion below overrides it anyways.
-		/* delete(ts.byWindowIndex, old.WindowIndex) */
+		/* delete(ts.byPaneId, old.PaneId) */
 		ts.suspectDead = append(ts.suspectDead, old)
 	}
 
-	ts.byWindowIndex[proc.WindowIndex] = proc
+	ts.byPaneId[proc.PaneId] = proc
 
 	ts.onProcSpawned(proc)
 }
 
-func (ts *TmuxSession) removeProcGroup(proc *TmuxProcess) {
+func (ts *TmuxSession) removeProcess(proc *TmuxProcess) {
 	// In case of [TmuxSession.markSuspectDead] being called, this does nothing
 	// In case the process died on its own, it will still be in the window index lookup table
-	delete(ts.byWindowIndex, proc.WindowIndex)
+	delete(ts.byPaneId, proc.PaneId)
 
 	proc.Dead = true
 	ts.onProcPruned(proc)
 }
 
 func (ts *TmuxSession) markSuspectDead(proc *TmuxProcess) {
-	delete(ts.byWindowIndex, proc.WindowIndex)
+	delete(ts.byPaneId, proc.PaneId)
 	ts.suspectDead = append(ts.suspectDead, proc)
 	proc.StoppingAttempt = time.Now()
 }
@@ -92,33 +105,35 @@ func (ts *TmuxSession) markSuspectDead(proc *TmuxProcess) {
 // starting the service. For an abbreviated example, `miniserve -p 1234` results in `/bin/sh -c 'miniserv -p 1234'`,
 // whereas `miniserve` `-p` `1234` results in running miniserve directly with the arguments.
 func (ts *TmuxSession) spawnProcess(windowName string, commandParts ...string) (*TmuxProcess, error) {
-	cmdArglist := []string{"new-window", "-t", ts.Name + ":", "-n", windowName, "-P", "-F", "#{window_index}:#{pane_pid}"}
+	cmdArglist := []string{"new-window", "-t", ts.targetSession(), "-n", windowName, "-P", "-F", "#{pane_id}:#{pane_pid}"}
 	cmdArglist = append(cmdArglist, commandParts...)
 	cmd := exec.Command(TmuxExecutable, cmdArglist...)
 	windowInfo, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
-	var windowIndex, pid int
-	fmt.Sscanf(string(windowInfo), "%d:%d", &windowIndex, &pid)
 
-	cmd = exec.Command(TmuxExecutable, "set-option", "-t", ts.Name+":"+strconv.Itoa(windowIndex), "synchronize-panes", "on")
+	var paneId, pid int
+	fmt.Sscanf(string(windowInfo), "%%%d:%d", &paneId, &pid)
+
+	proc := &TmuxProcess{
+		Name:   windowName,
+		PaneId: paneId,
+		Pid:    pid,
+	}
+
+	cmd = exec.Command(TmuxExecutable, "set-option", "-t", proc.targetPane(), "synchronize-panes", "on")
 	err = cmd.Run()
 	if err != nil {
 		return nil, err
 	}
 
-	proc := &TmuxProcess{
-		Name:        windowName,
-		WindowIndex: windowIndex,
-		Pid:         pid,
-	}
-	ts.insertProcGroup(proc)
-	fmt.Printf("spawned proc group %d:%s of pid=%d\n", windowIndex, windowName, pid)
+	ts.addProcess(proc)
+	fmt.Printf("spawned proc group %%%d pid=%d '%s'\n", paneId, pid, windowName)
 	return proc, nil
 }
 
-func (ts *TmuxSession) ForceKillProcGroup(proc *TmuxProcess) {
+func (ts *TmuxSession) ForceKillProcess(proc *TmuxProcess) {
 	err := syscall.Kill(proc.Pid, syscall.SIGKILL)
 	if err != nil {
 		fmt.Printf("[ERROR] failed to force kill pid=%d: %s\n", proc.Pid, err)
@@ -127,11 +142,11 @@ func (ts *TmuxSession) ForceKillProcGroup(proc *TmuxProcess) {
 
 func (ts *TmuxSession) PollAndPrune() error {
 	//// Detect dead proc groups, and prune them ////
-	for _, proc := range ts.byWindowIndex {
+	for _, proc := range ts.byPaneId {
 		err := syscall.Kill(proc.Pid, syscall.Signal(0))
 		if err != nil {
-			fmt.Printf("removing dead proc group %d:%s of pid=%d\n", proc.WindowIndex, proc.Name, proc.Pid)
-			ts.removeProcGroup(proc)
+			fmt.Printf("removing dead proc group %%%d pid=%d '%s'\n", proc.PaneId, proc.Pid, proc.Name)
+			ts.removeProcess(proc)
 		}
 	}
 	// Technically, the "last unprocessed proc group" but that's a long name
@@ -141,8 +156,8 @@ func (ts *TmuxSession) PollAndPrune() error {
 		suspect := ts.suspectDead[i]
 		err := syscall.Kill(suspect.Pid, syscall.Signal(0))
 		if err != nil {
-			fmt.Printf("removing confirmed suspect dead proc group %d:%s of pid=%d\n", suspect.WindowIndex, suspect.Name, suspect.Pid)
-			ts.removeProcGroup(suspect)
+			fmt.Printf("removing confirmed suspect dead proc group %%%d pid=%d '%s'\n", suspect.PaneId, suspect.Pid, suspect.Name)
+			ts.removeProcess(suspect)
 			ts.suspectDead[i] = ts.suspectDead[lastAlive]
 			lastAlive--
 		} else {
@@ -152,30 +167,24 @@ func (ts *TmuxSession) PollAndPrune() error {
 	ts.suspectDead = ts.suspectDead[:lastAlive+1]
 
 	//// Poll for newly created windows by somebody else, keep records and try to map them to units ////
-	cmd := exec.Command(TmuxExecutable, "list-panes", "-s", "-t", ts.Name+":", "-F", "#{window_index}:#{pane_pid}:#{window_name}")
+	cmd := exec.Command(TmuxExecutable, "list-panes", "-s", "-t", ts.targetSession(), "-F", "#{window_index}:#{pane_id}:#{pane_pid}:#{window_name}")
 	panes, err := cmd.Output()
 	if err != nil {
 		return err
 	}
 
 	for _, line := range strings.Split(string(panes), "\n") {
-		parts := strings.SplitN(line, ":", 3)
-		windowIndex, err := strconv.Atoi(parts[0])
-		if err != nil {
-			return err
-		}
+		var windowIndex, paneId, pid int
+		var windowName string
+		fmt.Sscanf(line, "%d:%%%d:%d:%s", &windowIndex, &paneId, &pid, &windowName)
+
 		// This is the special reserved window 0 to keep session alive when all procs have stopped
 		if windowIndex == 0 {
 			continue
 		}
-		pid, err := strconv.Atoi(parts[1])
-		if err != nil {
-			return err
-		}
-		windowName := parts[2]
 
-		proc := ts.byWindowIndex[windowIndex]
-		if proc != nil {
+		proc, exists := ts.byPaneId[paneId]
+		if exists {
 			continue
 		}
 		if slices.Contains(ts.suspectDead, proc) {
@@ -183,20 +192,20 @@ func (ts *TmuxSession) PollAndPrune() error {
 		}
 
 		proc = &TmuxProcess{
-			Name:        windowName,
-			WindowIndex: windowIndex,
-			Pid:         pid,
-			Adopted:     true,
+			Name:    windowName,
+			PaneId:  paneId,
+			Pid:     pid,
+			Adopted: true,
 		}
-		ts.insertProcGroup(proc)
-		fmt.Printf("polled proc group %d:%s of pid=%d\n", windowIndex, windowName, pid)
+		ts.addProcess(proc)
+		fmt.Printf("polled proc group %%%d pid=%d '%s' at window_index=%d", paneId, pid, windowName, windowIndex)
 	}
 
 	return nil
 }
 
-func (session *TmuxSession) SendKeys(serv *TmuxProcess, keys ...string) error {
-	cmdArglist := []string{"send-keys", "-t", session.Name + ":" + serv.Name}
+func (ts *TmuxSession) SendKeys(proc *TmuxProcess, keys ...string) error {
+	cmdArglist := []string{"send-keys", "-t", proc.targetPane()}
 	cmdArglist = append(cmdArglist, keys...)
 	cmd := exec.Command(TmuxExecutable, cmdArglist...)
 	err := cmd.Run()

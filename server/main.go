@@ -22,7 +22,7 @@ func httpHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func apiStartUnit(w http.ResponseWriter, req *http.Request) {
-	if conf.MaxUnits > 0 && len(ts.byWindowIndex) >= conf.MaxUnits {
+	if conf.MaxUnits > 0 && len(ts.byPaneId) >= conf.MaxUnits {
 		http.Error(w, `
 Failed to start unit:
 Cannot run more than 1 server at the same time. Please stop something else before starting this server.

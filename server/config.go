@@ -77,7 +77,7 @@ func (up *UnitProcess) forceStopAllowed() bool {
 }
 
 func (up *UnitProcess) forceStop(ts *TmuxSession) {
-	ts.ForceKillProcGroup(up.proc)
+	ts.ForceKillProcess(up.proc)
 }
 
 type UnitGroup struct {
