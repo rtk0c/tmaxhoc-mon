@@ -3,10 +3,12 @@
   margin: 0px 0.2em 0px 0.2em;
 }
 
-.units-container {
+body {
+  margin: 40px;
+}
+#unitsContainer {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
   gap: 0.5em;
 }
 

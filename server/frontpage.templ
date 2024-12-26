@@ -7,25 +7,20 @@ import (
 templ compServiceUnit(unit *Unit) {
 	{{
 	var unitClass string
-	var icon, tooltip string
+	var tooltip string
 	switch unit.driver.(type) {
 	case *UnitProcess:
 		unitClass = "unitprocess"
-		icon = "🎵"
 		tooltip = "A standalone service"
 	case *UnitGroup:
 		unitClass = "unitgroup"
-		icon = "🎶"
 		tooltip = "Many subpart services grouped together"
 	}
 	}}
 
 	// TODO how to add user defined styles here? templ doesn't like Raw() inside an element, styles="" can't be templated either
 	<div class={ "unit", unitClass }>
-	<p class="unit-name">
-		<span title={ tooltip }>{ icon }</span>
-		{ unit.Name }
-	</p>
+	<p class="unit-name" title={ tooltip }>{ unit.Name }</p>
 	switch unit.driver.status() {
 	case Stopped:
 		<span class="marker marker-stopped">Stopped</span>
@@ -72,7 +67,7 @@ templ compFrontpage(sys *Config) {
 		<script src="/static/js/main.js"></script>
 	</head>
 	<body>
-		<div class="units-container">
+		<div id="unitsContainer">
 		for _, unit := range sys.Units {
 			// Seems like templ doesn't support continue
 			if !unit.Hidden {
