@@ -1,3 +1,8 @@
+/* "C"osmetic tags kind of like tailwind CSS, but homebrew and whatever  */
+.c-space-around {
+  margin: 0px 0.2em 0px 0.2em;
+}
+
 .units-container {
   display: flex;
   flex-wrap: wrap;
@@ -10,6 +15,10 @@
   border-radius: 8px;
   padding: 0.5em;
   width: 300px;
+}
+.unitgroup {
+  border-style: double;
+  border-width: 3px;
 }
 
 .unit-name {

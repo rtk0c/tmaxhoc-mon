@@ -1,9 +1,31 @@
 package main
 
+import (
+    "strconv"
+)
+
 templ compServiceUnit(unit *Unit) {
+	{{
+	var unitClass string
+	var icon, tooltip string
+	switch unit.driver.(type) {
+	case *UnitProcess:
+		unitClass = "unitprocess"
+		icon = "🎵"
+		tooltip = "A standalone service"
+	case *UnitGroup:
+		unitClass = "unitgroup"
+		icon = "🎶"
+		tooltip = "Many subpart services grouped together"
+	}
+	}}
+
 	// TODO how to add user defined styles here? templ doesn't like Raw() inside an element, styles="" can't be templated either
-	<div class="unit">
-	<p class="unit-name">{ unit.Name }</p>
+	<div class={ "unit", unitClass }>
+	<p class="unit-name">
+		<span title={ tooltip }>{ icon }</span>
+		{ unit.Name }
+	</p>
 	switch unit.driver.status() {
 	case Stopped:
 		<span class="marker marker-stopped">Stopped</span>
@@ -26,6 +48,15 @@ templ compServiceUnit(unit *Unit) {
 			<input type="hidden" name="unit" value={ unit.Name }>
 			<input type="submit" value="Stop">
 		</form>
+	}
+	switch unit.driver.(type) {
+	case *UnitGroup:
+		{{
+		d := unit.driver.(*UnitGroup)
+		n := d.numReqsRunning()
+		outOf := len(d.requirements)
+		}}
+		<span class="c-space-around">subparts: { strconv.Itoa(n) }/{ strconv.Itoa(outOf) }</span>
 	}
 	// Description is directly configurable as arbitary HTML tags, so we use <div> here
 	<div class="unit-desc">@templ.Raw(unit.Description)</div>

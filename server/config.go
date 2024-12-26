@@ -121,6 +121,16 @@ func (ug *UnitGroup) status() UnitStatus {
 func (*UnitGroup) forceStopAllowed() bool   { return false }
 func (*UnitGroup) forceStop(_ *TmuxSession) {}
 
+func (ug *UnitGroup) numReqsRunning() int {
+	n := 0
+	for _, req := range ug.requirements {
+		if req.driver.status() == Running {
+			n++
+		}
+	}
+	return n
+}
+
 type Unit struct {
 	Name        string
 	Description string
