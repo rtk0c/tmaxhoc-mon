@@ -192,10 +192,10 @@ func NewConfig(configFile string) (*Config, error) {
 		switch unit.driver.(type) {
 		case *UnitProcess:
 			d := unit.driver.(*UnitProcess)
-			res.tmuxNameLut[d.TmuxName] = d
 			if len(d.TmuxName) == 0 {
 				d.TmuxName = unit.Name
 			}
+			res.tmuxNameLut[d.TmuxName] = d
 		case *UnitGroup:
 			d := unit.driver.(*UnitGroup)
 			d.requirements = make([]*Unit, len(d.Requires))
