@@ -72,6 +72,10 @@ func (ts *TmuxSession) insertProcGroup(proc *TmuxProcess) {
 }
 
 func (ts *TmuxSession) removeProcGroup(proc *TmuxProcess) {
+	// In case of [TmuxSession.markSuspectDead] being called, this does nothing
+	// In case the process died on its own, it will still be in the window index lookup table
+	delete(ts.byWindowIndex, proc.WindowIndex)
+
 	proc.Dead = true
 	ts.onProcPruned(proc)
 }
