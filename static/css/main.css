@@ -14,7 +14,8 @@
   border: 1.5px solid black;
   border-radius: 8px;
   padding: 0.5em;
-  width: 300px;
+  /* Recommended 50-70ch for normal reading, cut it short for our info card style display */
+  max-width: 45ch;
 }
 .unitgroup {
   border-style: double;
