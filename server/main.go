@@ -20,84 +20,21 @@ var modelLock sync.RWMutex
 // This also enables the unit definitions to have HTML like <b>bold</b> in descriptions, etc.
 var frontpage *template.Template
 
-type HttpProcGroup struct {
-	def  *UnitDefinition
-	proc *TmuxProcess
-}
-
-// Implies running proc group
-func (hpg *HttpProcGroup) IsAdopted() bool {
-	return hpg.proc != nil && hpg.proc.Adopted
-}
-
-func (hpg *HttpProcGroup) IsStopped() bool {
-	return hpg.proc == nil
-}
-
-func (hpg *HttpProcGroup) IsStopping() bool {
-	return hpg.proc != nil && !hpg.proc.StoppingAttempt.IsZero()
-}
-
-func (hpg *HttpProcGroup) IsRunning() bool {
-	return hpg.proc != nil && hpg.proc.StoppingAttempt.IsZero()
-}
-
-func (hpg *HttpProcGroup) ForceStopAllowed() bool {
-	return hpg.IsStopping() && time.Since(hpg.proc.StoppingAttempt) > 10*time.Second
-}
-
-func (hpg *HttpProcGroup) Name() string {
-	if hpg.def != nil {
-		return hpg.def.Name
-	}
-	if hpg.proc != nil {
-		return hpg.proc.Name
-	}
-	panic("BUG: HttpProcGroup cannot have neither definition nor proc group")
-}
-
-func (hpg *HttpProcGroup) Description() string {
-	if hpg.def != nil {
-		return hpg.def.Description
-	}
-	return ""
-}
-
-func (hpg *HttpProcGroup) UserDefinedAttributes() string {
-	if hpg.def != nil && len(hpg.def.Styles) > 0 {
-		return "style=\"" + hpg.def.Styles + "\""
-	}
-	return ""
-}
-
-func collectProcGroupInfo() []HttpProcGroup {
+func collectProcGroupInfo() []*Unit {
 	modelLock.RLock()
 	defer modelLock.RUnlock()
 
-	hpg := []HttpProcGroup{}
+	display := []*Unit{}
 	// Already in display order
 	for _, unit := range conf.Units {
 		if unit.Hidden {
 			continue
 		}
 
-		proc := ts.byUnit[unit]
-		if proc == nil {
-			for _, unalive := range ts.suspectDead {
-				if unalive.Unit == unit {
-					proc = unalive
-					break
-				}
-			}
-		}
-
-		hpg = append(hpg, HttpProcGroup{
-			def:  unit,
-			proc: proc,
-		})
+		display = append(display, unit)
 	}
 
-	return hpg
+	return display
 }
 
 func httpHandler(w http.ResponseWriter, req *http.Request) {
@@ -123,7 +60,7 @@ Use the browser back button to go to the server panel again.`, http.StatusForbid
 
 	if unit != nil {
 		modelLock.Lock()
-		ts.StartUnit(unit)
+		unit.driver.start(ts)
 		modelLock.Unlock()
 	}
 
@@ -150,24 +87,26 @@ func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 	}
 
 	modelLock.Lock()
-
-	hpg := HttpProcGroup{def: unit, proc: ts.byUnit[unit]}
-	if hpg.proc == nil {
-		modelLock.Unlock()
-		return
-	}
-	if force && hpg.ForceStopAllowed() {
-		http.Error(w, "force kill not allowed: not enough time has passed since stopping attempt", http.StatusBadRequest)
-		modelLock.Unlock()
-		return
-	}
+	// wasting some time per request, since call to Redirect()/Error() doesn't need to be locked
+	// but doesn't really matter
+	defer modelLock.Unlock()
 
 	if force {
-		ts.ForceKillProcGroup(hpg.proc)
-	} else {
-		ts.StopUnit(unit)
+		switch unit.driver.(type) {
+		case *UnitProcess:
+			d := unit.driver.(*UnitProcess)
+			if d.forceStopAllowed() {
+				d.forceStop(ts)
+			} else {
+				http.Error(w, "force kill not allowed: not enough time has passed since stopping attempt", http.StatusBadRequest)
+			}
+		case *UnitGroup:
+			http.Error(w, "force kill not allowed on target units", http.StatusBadRequest)
+		}
+		return
 	}
-	modelLock.Unlock()
+
+	unit.driver.stop(ts)
 	http.Redirect(w, req, "/", http.StatusFound)
 }
 
@@ -186,6 +125,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	conf.BindTmuxSession(ts)
 
 	res, err := template.ParseFiles(conf.FrontpageTemplate)
 	if err != nil {

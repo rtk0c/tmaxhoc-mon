@@ -12,7 +12,7 @@ import (
 
 type TmuxSession struct {
 	Name string
-	// LUT from [TmuxProcGroup.WindowIndex] to proc groups.
+	// LUT from [TmuxProcess.WindowIndex] to proc groups.
 	// Every proc group managed by this session must be inside this map.
 	byWindowIndex map[int]*TmuxProcess
 	// Proc groups that are about to die or is evident to be dead by a conflicting window index.
@@ -26,15 +26,14 @@ type TmuxProcess struct {
 	Name        string
 	WindowIndex int
 	Pid         int
-	// If true, a stop command has been issued but we're not sure it has died.
-	// TODO stopping time so we can have a timeout mechanism?
+	// If non-zero, a stop command has been issued but we're not sure it has died.
 	StoppingAttempt time.Time
 	// If true, this process has exited and been removed by [TmuxSession.PollAndPrune].
 	// This field is for let library users to drop the reference to this proc group after it died,
 	// without having to do a lookup in the [TmuxService].
 	Dead bool
 	// If true, this process was parsed rather than launched by [TmuxSession.SpawnProcesses].
-	// Note that this property is orthogonal to [TmuxProcGroup.Unit];
+	// Note that this property is orthogonal to [TmuxProcess.Unit];
 	// an adopted proc group may have an associated unit, and a non-adopted proc group may not have an associated unit.
 	Adopted bool
 }
@@ -73,9 +72,14 @@ func (ts *TmuxSession) insertProcGroup(proc *TmuxProcess) {
 }
 
 func (ts *TmuxSession) removeProcGroup(proc *TmuxProcess) {
-	delete(ts.byWindowIndex, proc.WindowIndex)
-
+	proc.Dead = true
 	ts.onProcPruned(proc)
+}
+
+func (ts *TmuxSession) markSuspectDead(proc *TmuxProcess) {
+	delete(ts.byWindowIndex, proc.WindowIndex)
+	ts.suspectDead = append(ts.suspectDead, proc)
+	proc.StoppingAttempt = time.Now()
 }
 
 // windowName is an arbitary tmux window name for running the processes in.
@@ -124,7 +128,6 @@ func (ts *TmuxSession) PollAndPrune() error {
 		if err != nil {
 			fmt.Printf("removing dead proc group %d:%s of pid=%d\n", proc.WindowIndex, proc.Name, proc.Pid)
 			ts.removeProcGroup(proc)
-			proc.Dead = true
 		}
 	}
 	// Technically, the "last unprocessed proc group" but that's a long name
@@ -135,11 +138,8 @@ func (ts *TmuxSession) PollAndPrune() error {
 		err := syscall.Kill(suspect.Pid, syscall.Signal(0))
 		if err != nil {
 			fmt.Printf("removing confirmed suspect dead proc group %d:%s of pid=%d\n", suspect.WindowIndex, suspect.Name, suspect.Pid)
-			// Defensive: all suspect deads should already be removed from byXxx lookup tables, but in case it is not
-			// catch it here, so we still have a consistent state
 			ts.removeProcGroup(suspect)
 			ts.suspectDead[i] = ts.suspectDead[lastAlive]
-			suspect.Dead = true
 			lastAlive--
 		} else {
 			i++
