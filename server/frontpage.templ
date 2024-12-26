@@ -16,10 +16,14 @@ templ compServiceUnit(unit *Unit) {
 		unitClass = "unitgroup"
 		tooltip = "Many subpart services grouped together"
 	}
+
+	var attrs templ.Attributes
+	if len(unit.Styles) > 0 {
+		attrs = templ.Attributes{"style": unit.Styles}
+	}
 	}}
 
-	// TODO how to add user defined styles here? templ doesn't like Raw() inside an element, styles="" can't be templated either
-	<div class={ "unit", unitClass }>
+	<div class={ "unit", unitClass } { attrs... }>
 	<p class="unit-name" title={ tooltip }>{ unit.Name }</p>
 	switch unit.driver.status() {
 	case Stopped:

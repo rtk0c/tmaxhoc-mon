@@ -7,7 +7,7 @@ cd server
 go build -o "$MYTEMPDIR/server"
 cd ..
 
-cp -r panel "$MYTEMPDIR"
+cp -r static "$MYTEMPDIR"
 
 tar -czvf bundle.tar.gz --directory="$MYTEMPDIR" .
 

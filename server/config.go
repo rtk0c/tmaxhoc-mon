@@ -145,13 +145,6 @@ type Unit struct {
 	driver  UnitDriver
 }
 
-func (u *Unit) UserDefinedAttributes() string {
-	if len(u.Styles) > 0 {
-		return "style=\"" + u.Styles + "\""
-	}
-	return ""
-}
-
 var sanitizer = regexp.MustCompile("[^a-zA-Z0-9-_ ]")
 
 func sanitizeTmuxName(s string) string {
