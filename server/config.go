@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"regexp"
 	"time"
 
 	"github.com/pelletier/go-toml/v2"
@@ -151,8 +152,11 @@ func (u *Unit) UserDefinedAttributes() string {
 	return ""
 }
 
-// Re-export these for template engine access
-// TODO
+var sanitizer = regexp.MustCompile("[^a-zA-Z0-9-_ ]")
+
+func sanitizeTmuxName(s string) string {
+	return sanitizer.ReplaceAllLiteralString(s, "_")
+}
 
 type Config struct {
 	// List of units in the same order as the config file.
@@ -209,7 +213,11 @@ func NewConfig(configFile string) (*Config, error) {
 		case *UnitProcess:
 			d := unit.driver.(*UnitProcess)
 			if len(d.TmuxName) == 0 {
-				d.TmuxName = unit.Name
+				d.TmuxName = sanitizeTmuxName(unit.Name)
+			}
+			_, exists := res.tmuxNameLut[d.TmuxName]
+			if exists {
+				panic("Duplicate tmux window name '" + d.TmuxName + "'! Possibly caused by generated from unit names that differ only in special non-alphanumeric characters.")
 			}
 			res.tmuxNameLut[d.TmuxName] = d
 		case *UnitGroup:
