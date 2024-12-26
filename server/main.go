@@ -22,11 +22,11 @@ func httpHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func apiStartUnit(w http.ResponseWriter, req *http.Request) {
-	if conf.MaxUnits > 0 && len(ts.byPaneId) >= conf.MaxUnits {
-		http.Error(w, `
+	if conf.MaxUnits > 0 && conf.RunningServicesCount() >= conf.MaxUnits {
+		http.Error(w, fmt.Sprintf(`
 Failed to start unit:
-Cannot run more than 1 server at the same time. Please stop something else before starting this server.
-Use the browser back button to go to the server panel again.`, http.StatusForbidden)
+Cannot run more than %d server at the same time. Please stop something else before starting this server.
+Use the browser back button to go to the server panel again.`, conf.MaxUnits), http.StatusForbidden)
 		return
 	}
 
@@ -74,6 +74,7 @@ func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 			d := unit.driver.(*ServiceUnit)
 			if d.forceStopAllowed() {
 				d.forceStop(ts)
+				http.Redirect(w, req, "/", http.StatusFound)
 			} else {
 				http.Error(w, "force kill not allowed: not enough time has passed since stopping attempt", http.StatusBadRequest)
 			}

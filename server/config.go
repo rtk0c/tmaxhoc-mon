@@ -297,3 +297,16 @@ func (cfg *Config) MatchByName(name string) *Unit {
 	// - some kind of fuzzy scoring algorithm like fzf/sublime text's command palette
 	return cfg.unitsLut[name]
 }
+
+func (cfg *Config) RunningServicesCount() int {
+	count := 0
+	for _, unit := range cfg.Units {
+		switch unit.driver.(type) {
+		case *ServiceUnit:
+			if unit.driver.status() == Running {
+				count++
+			}
+		}
+	}
+	return count
+}
