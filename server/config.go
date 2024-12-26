@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/pelletier/go-toml/v2"
@@ -30,21 +32,32 @@ type ServiceUnit struct {
 	// Name of the tmux window hosting this unit process.
 	TmuxName string `toml:"TmuxWindowName"`
 
-	// Arguments to `tmux new-window` (see [TmuxSession.spawnProcess]).
-	StartCommand []string
-
-	// Arguments to `tmux send-command`
-	StopCommand []string
-
 	// If non-zero, a stop command has been issued but we're not sure it has died.
-	StoppingAttempt time.Time
+	stoppingAttempt time.Time
 
 	procs []*TmuxProcess
+
+	// Arguments to `tmux new-window` (see [TmuxSession.spawnProcess]).
+	StartCommand []string
+	// Arguments to `tmux send-command` to every process in this unit
+	StopCommand []string
+
+	// If true, start command is run as a process, passing our managed tmux session name as the sole argument,
+	// and parsing stdout for lines in the form of tmux -F '#{pane_id}\t{pane_pid}'.
+	ScriptedStart bool
+	// If true, stop command is run as process, passing #{pane_id} and #{pane_pid} as additional arguments for each process in this unit.
+	ScriptedStop bool
 }
 
 func (serv *ServiceUnit) start(ts *TmuxSession) error {
 	if len(serv.procs) > 0 {
 		return nil
+	}
+
+	if serv.ScriptedStart {
+		exe := serv.StartCommand[0]
+		args := serv.StartCommand[1:]
+		return ts.spawnByScript(serv.TmuxName, exe, args...)
 	}
 
 	proc, err := ts.spawnProcess(serv.TmuxName, serv.StartCommand...)
@@ -60,15 +73,26 @@ func (serv *ServiceUnit) stop(ts *TmuxSession) {
 		return
 	}
 
+	if serv.ScriptedStop {
+		args := serv.StopCommand[1:]
+		for _, proc := range serv.procs {
+			args = append(args, proc.targetPane())
+			args = append(args, strconv.Itoa(proc.Pid))
+		}
+		cmd := exec.Command(serv.StopCommand[0], args...)
+		cmd.Run()
+		return
+	}
+
 	for _, proc := range serv.procs {
 		ts.SendKeys(proc, serv.StopCommand...)
-		serv.StoppingAttempt = time.Now()
+		serv.stoppingAttempt = time.Now()
 	}
 }
 
 func (serv *ServiceUnit) status() UnitStatus {
 	if len(serv.procs) > 0 {
-		if serv.StoppingAttempt.IsZero() {
+		if serv.stoppingAttempt.IsZero() {
 			return Running
 		} else {
 			return Stopping
@@ -79,7 +103,7 @@ func (serv *ServiceUnit) status() UnitStatus {
 }
 
 func (serv *ServiceUnit) forceStopAllowed() bool {
-	return serv.status() == Stopping && time.Since(serv.StoppingAttempt) > 10*time.Second
+	return serv.status() == Stopping && time.Since(serv.stoppingAttempt) > 10*time.Second
 }
 
 func (serv *ServiceUnit) forceStop(ts *TmuxSession) {
@@ -258,7 +282,7 @@ func (cfg *Config) BindTmuxSession(ts *TmuxSession) {
 			serv.procs[idx] = serv.procs[lastIdx]
 			serv.procs = serv.procs[:lastIdx]
 			if len(serv.procs) == 0 {
-				serv.StoppingAttempt = time.Time{}
+				serv.stoppingAttempt = time.Time{}
 			}
 		}
 	}

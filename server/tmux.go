@@ -9,17 +9,21 @@ import (
 )
 
 type TmuxSession struct {
-	Name string
+	SessionName string
+
 	// LUT from [TmuxProcess.PaneId] to proc groups.
 	// Every proc group managed by this session must be inside this map.
 	byPaneId map[int]*TmuxProcess
 
 	onProcSpawned func(*TmuxProcess)
 	onProcPruned  func(*TmuxProcess)
+
+	// The special reserved window 0 to keep session alive when all procs have stopped
+	reservedWindowPaneId int
 }
 
 func (ts *TmuxSession) targetSession() string {
-	return ts.Name + ":"
+	return ts.SessionName + ":"
 }
 
 type TmuxProcess struct {
@@ -59,10 +63,32 @@ func NewTmuxSession(sessionName string) (*TmuxSession, error) {
 		}
 	}
 
-	return &TmuxSession{
-		Name:     sessionName,
+	ts := &TmuxSession{
+		SessionName: sessionName,
+
 		byPaneId: make(map[int]*TmuxProcess),
-	}, nil
+
+		reservedWindowPaneId: -1,
+	}
+
+	cmd = exec.Command(TmuxExecutable, "list-panes", "-s", "-t", ts.targetSession(), "-F", "#{window_index}\t#{pane_id}")
+	panes, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	for _, line := range strings.Split(string(panes), "\n") {
+		var windowIndex, paneId int
+		fmt.Sscanf(line, "%d\t%%%d", &windowIndex, &paneId)
+		if windowIndex == 0 {
+			ts.reservedWindowPaneId = paneId
+			break
+		}
+	}
+	if ts.reservedWindowPaneId == -1 {
+		fmt.Println("[WARN] no reserved window present in the session")
+	}
+
+	return ts, nil
 }
 
 func (ts *TmuxSession) addProcess(proc *TmuxProcess) {
@@ -82,32 +108,49 @@ func (ts *TmuxSession) removeProcess(proc *TmuxProcess) {
 // starting the service. For an abbreviated example, `miniserve -p 1234` results in `/bin/sh -c 'miniserv -p 1234'`,
 // whereas `miniserve` `-p` `1234` results in running miniserve directly with the arguments.
 func (ts *TmuxSession) spawnProcess(windowName string, commandParts ...string) (*TmuxProcess, error) {
-	cmdArglist := []string{"new-window", "-t", ts.targetSession(), "-n", windowName, "-P", "-F", "#{pane_id}:#{pane_pid}"}
+	cmdArglist := []string{"new-window", "-t", ts.targetSession(), "-n", windowName, "-P", "-F", "#{pane_id}\t#{pane_pid}"}
 	cmdArglist = append(cmdArglist, commandParts...)
 	cmd := exec.Command(TmuxExecutable, cmdArglist...)
-	windowInfo, err := cmd.Output()
+	info, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
 
 	var paneId, pid int
-	fmt.Sscanf(string(windowInfo), "%%%d:%d", &paneId, &pid)
+	fmt.Sscanf(string(info), "%%%d\t%d", &paneId, &pid)
 
 	proc := &TmuxProcess{
 		Name:   windowName,
 		PaneId: paneId,
 		Pid:    pid,
 	}
-
-	cmd = exec.Command(TmuxExecutable, "set-option", "-t", proc.targetPane(), "synchronize-panes", "on")
-	err = cmd.Run()
-	if err != nil {
-		return nil, err
-	}
-
 	ts.addProcess(proc)
+
 	fmt.Printf("spawned proc group %%%d pid=%d '%s'\n", paneId, pid, windowName)
 	return proc, nil
+}
+
+func (ts *TmuxSession) spawnByScript(windowName string, script string, args ...string) error {
+	args = append(args, ts.SessionName)
+	cmd := exec.Command(script, args...)
+	stdout, err := cmd.Output()
+	if err != nil {
+		return err
+	}
+
+	for _, line := range strings.Split(string(stdout), "\n") {
+		var paneId, pid int
+		fmt.Sscanf(line, "%%%d\t%d", &paneId, &pid)
+
+		proc := &TmuxProcess{
+			Name:   windowName,
+			PaneId: paneId,
+			Pid:    pid,
+		}
+		ts.addProcess(proc)
+	}
+
+	return nil
 }
 
 func (ts *TmuxSession) ForceKillProcess(proc *TmuxProcess) {
@@ -128,34 +171,33 @@ func (ts *TmuxSession) PollAndPrune() error {
 	}
 
 	//// Poll for newly created windows by somebody else, keep records and try to map them to units ////
-	cmd := exec.Command(TmuxExecutable, "list-panes", "-s", "-t", ts.targetSession(), "-F", "#{window_index}:#{pane_id}:#{pane_pid}:#{window_name}")
+	cmd := exec.Command(TmuxExecutable, "list-panes", "-s", "-t", ts.targetSession(), "-F", "#{pane_id}\t#{pane_pid}\t#{window_name}")
 	panes, err := cmd.Output()
 	if err != nil {
 		return err
 	}
-
 	for _, line := range strings.Split(string(panes), "\n") {
-		var windowIndex, paneId, pid int
+		var paneId, pid int
 		var windowName string
-		fmt.Sscanf(line, "%d:%%%d:%d:%s", &windowIndex, &paneId, &pid, &windowName)
+		fmt.Sscanf(line, "%%%d\t%d\t%s", &paneId, &pid, &windowName)
 
-		// This is the special reserved window 0 to keep session alive when all procs have stopped
-		if windowIndex == 0 {
+		if paneId == ts.reservedWindowPaneId {
 			continue
 		}
-
 		_, exists := ts.byPaneId[paneId]
 		if exists {
 			continue
 		}
 
-		ts.addProcess(&TmuxProcess{
+		proc := &TmuxProcess{
 			Name:    windowName,
 			PaneId:  paneId,
 			Pid:     pid,
 			Adopted: true,
-		})
-		fmt.Printf("polled proc group %%%d pid=%d '%s' at window_index=%d", paneId, pid, windowName, windowIndex)
+		}
+		ts.addProcess(proc)
+
+		fmt.Printf("polled proc group %%%d pid=%d '%s'", paneId, pid, windowName)
 	}
 
 	return nil
