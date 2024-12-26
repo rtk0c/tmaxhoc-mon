@@ -1,0 +1,54 @@
+package main
+
+templ compServiceUnit(unit *Unit) {
+	// TODO how to add user defined styles here? templ doesn't like Raw() inside an element, styles="" can't be templated either
+	<div class="unit">
+	<p class="unit-name">{ unit.Name }</p>
+	switch unit.driver.status() {
+	case Stopped:
+		<span class="marker marker-stopped">Stopped</span>
+		<form class="unit-action" method="post" action="/api/start-unit">
+			<input type="hidden" name="unit" value={ unit.Name }>
+			<input type="submit" value="Start">
+		</form>
+	case Stopping:
+		<span class="marker marker-stopping">Stopping</span>
+		if unit.driver.forceStopAllowed() {
+			<form class="unit-action" method="post" action="/api/stop-unit">
+				<input type="hidden" name="unit" value={ unit.Name }>
+				<input type="hidden" name="force" value="true">
+				<input type="submit" value="Force stop">
+			</form>
+		}
+	case Running:
+		<span class="marker marker-running">Running</span>
+		<form class="unit-action" method="post" action="/api/stop-unit">
+			<input type="hidden" name="unit" value={ unit.Name }>
+			<input type="submit" value="Stop">
+		</form>
+	}
+	// Description is directly configurable as arbitary HTML tags, so we use <div> here
+	<div class="unit-desc">@templ.Raw(unit.Description)</div>
+	</div>
+}
+
+templ compFrontpage(sys *Config) {
+	<!DOCTYPE html>
+	<html>
+	<head>
+		<title>tmaxhoc</title>
+		<link rel="stylesheet" href="/static/css/main.css" />
+		<script src="/static/js/main.js"></script>
+	</head>
+	<body>
+		<div class="units-container">
+		for _, unit := range sys.Units {
+			// Seems like templ doesn't support continue
+			if !unit.Hidden {
+				@compServiceUnit(unit)
+			}
+		}
+		</div>
+	</body>
+	</html>
+}

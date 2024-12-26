@@ -1,11 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net/http"
 	"sync"
-	"text/template"
 	"time"
 )
 
@@ -13,36 +13,12 @@ var conf *Config
 var ts *TmuxSession
 var modelLock sync.RWMutex
 
-// We specifically want text/template; any "malicious code" would involve being on the other side of the airtight hatchway
-// because all params come from either unit definitions, or tmux window names;
-// access to either already implies arbitary code execution capability
-//
-// This also enables the unit definitions to have HTML like <b>bold</b> in descriptions, etc.
-var frontpage *template.Template
-
-func collectProcGroupInfo() []*Unit {
+func httpHandler(w http.ResponseWriter, req *http.Request) {
 	modelLock.RLock()
 	defer modelLock.RUnlock()
 
-	display := []*Unit{}
-	// Already in display order
-	for _, unit := range conf.Units {
-		if unit.Hidden {
-			continue
-		}
-
-		display = append(display, unit)
-	}
-
-	return display
-}
-
-func httpHandler(w http.ResponseWriter, req *http.Request) {
-	data := collectProcGroupInfo()
-	err := frontpage.Execute(w, data)
-	if err != nil {
-		panic(err)
-	}
+	component := compFrontpage(conf)
+	component.Render(context.Background(), w)
 }
 
 func apiStartUnit(w http.ResponseWriter, req *http.Request) {
@@ -92,6 +68,7 @@ func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 	defer modelLock.Unlock()
 
 	if force {
+		// TODO somehow abstract this away in virtual methods?
 		switch unit.driver.(type) {
 		case *UnitProcess:
 			d := unit.driver.(*UnitProcess)
@@ -127,12 +104,6 @@ func main() {
 	}
 
 	conf.BindTmuxSession(ts)
-
-	res, err := template.ParseFiles(conf.FrontpageTemplate)
-	if err != nil {
-		panic(err)
-	}
-	frontpage = res
 
 	// TODO event loop, and instead of tracking a "suspect dead list", don't store newly spawned processes at all,
 	//   but instead immediately queue a PollAndPrune() to detect the new proc group (and reset the timer)

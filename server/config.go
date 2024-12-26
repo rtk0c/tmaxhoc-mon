@@ -19,6 +19,9 @@ type UnitDriver interface {
 	start(ts *TmuxSession) error
 	stop(ts *TmuxSession)
 	status() UnitStatus
+
+	forceStopAllowed() bool
+	forceStop(ts *TmuxSession)
 }
 
 type UnitProcess struct {
@@ -114,6 +117,9 @@ func (ug *UnitGroup) status() UnitStatus {
 	}
 	return Stopped
 }
+
+func (*UnitGroup) forceStopAllowed() bool   { return false }
+func (*UnitGroup) forceStop(_ *TmuxSession) {}
 
 type Unit struct {
 	Name        string
