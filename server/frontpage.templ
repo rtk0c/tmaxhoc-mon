@@ -9,10 +9,10 @@ templ compServiceUnit(unit *Unit) {
 	var unitClass string
 	var tooltip string
 	switch unit.driver.(type) {
-	case *UnitProcess:
-		unitClass = "unitprocess"
+	case *ServiceUnit:
+		unitClass = "unitservice"
 		tooltip = "A standalone service"
-	case *UnitGroup:
+	case *GroupUnit:
 		unitClass = "unitgroup"
 		tooltip = "Many subpart services grouped together"
 	}
@@ -49,9 +49,9 @@ templ compServiceUnit(unit *Unit) {
 		</form>
 	}
 	switch unit.driver.(type) {
-	case *UnitGroup:
+	case *GroupUnit:
 		{{
-		d := unit.driver.(*UnitGroup)
+		d := unit.driver.(*GroupUnit)
 		n := d.numReqsRunning()
 		outOf := len(d.requirements)
 		}}

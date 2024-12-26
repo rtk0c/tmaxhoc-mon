@@ -70,14 +70,14 @@ func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 	if force {
 		// TODO somehow abstract this away in virtual methods?
 		switch unit.driver.(type) {
-		case *UnitProcess:
-			d := unit.driver.(*UnitProcess)
+		case *ServiceUnit:
+			d := unit.driver.(*ServiceUnit)
 			if d.forceStopAllowed() {
 				d.forceStop(ts)
 			} else {
 				http.Error(w, "force kill not allowed: not enough time has passed since stopping attempt", http.StatusBadRequest)
 			}
-		case *UnitGroup:
+		case *GroupUnit:
 			http.Error(w, "force kill not allowed on target units", http.StatusBadRequest)
 		}
 		return

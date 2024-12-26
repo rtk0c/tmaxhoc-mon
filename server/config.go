@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"regexp"
 	"time"
@@ -25,7 +26,7 @@ type UnitDriver interface {
 	forceStop(ts *TmuxSession)
 }
 
-type UnitProcess struct {
+type ServiceUnit struct {
 	// Name of the tmux window hosting this unit process.
 	TmuxName string `toml:"TmuxWindowName"`
 
@@ -35,34 +36,39 @@ type UnitProcess struct {
 	// Arguments to `tmux send-command`
 	StopCommand []string
 
-	proc *TmuxProcess
+	// If non-zero, a stop command has been issued but we're not sure it has died.
+	StoppingAttempt time.Time
+
+	procs []*TmuxProcess
 }
 
-func (up *UnitProcess) start(ts *TmuxSession) error {
-	if up.proc != nil {
+func (serv *ServiceUnit) start(ts *TmuxSession) error {
+	if len(serv.procs) > 0 {
 		return nil
 	}
 
-	proc, err := ts.spawnProcess(up.TmuxName, up.StartCommand...)
+	proc, err := ts.spawnProcess(serv.TmuxName, serv.StartCommand...)
 	if err != nil {
 		return err
 	}
-	up.proc = proc
+	serv.procs = []*TmuxProcess{proc}
 	return nil
 }
 
-func (up *UnitProcess) stop(ts *TmuxSession) {
-	if up.proc == nil {
+func (serv *ServiceUnit) stop(ts *TmuxSession) {
+	if len(serv.procs) == 0 {
 		return
 	}
 
-	ts.SendKeys(up.proc, up.StopCommand...)
-	ts.markSuspectDead(up.proc)
+	for _, proc := range serv.procs {
+		ts.SendKeys(proc, serv.StopCommand...)
+		serv.StoppingAttempt = time.Now()
+	}
 }
 
-func (up *UnitProcess) status() UnitStatus {
-	if up.proc != nil {
-		if up.proc.StoppingAttempt.IsZero() {
+func (serv *ServiceUnit) status() UnitStatus {
+	if len(serv.procs) > 0 {
+		if serv.StoppingAttempt.IsZero() {
 			return Running
 		} else {
 			return Stopping
@@ -72,15 +78,17 @@ func (up *UnitProcess) status() UnitStatus {
 	}
 }
 
-func (up *UnitProcess) forceStopAllowed() bool {
-	return up.status() == Stopping && time.Since(up.proc.StoppingAttempt) > 10*time.Second
+func (serv *ServiceUnit) forceStopAllowed() bool {
+	return serv.status() == Stopping && time.Since(serv.StoppingAttempt) > 10*time.Second
 }
 
-func (up *UnitProcess) forceStop(ts *TmuxSession) {
-	ts.ForceKillProcess(up.proc)
+func (serv *ServiceUnit) forceStop(ts *TmuxSession) {
+	for _, proc := range serv.procs {
+		ts.ForceKillProcess(proc)
+	}
 }
 
-type UnitGroup struct {
+type GroupUnit struct {
 	// Dependencies listed by [Unit.Name], which are started before this starts, and stopped after this stops.
 	Requires []string
 	// Dependencies references.
@@ -88,8 +96,8 @@ type UnitGroup struct {
 	requirements []*Unit
 }
 
-func (ug *UnitGroup) start(ts *TmuxSession) error {
-	for _, req := range ug.requirements {
+func (gp *GroupUnit) start(ts *TmuxSession) error {
+	for _, req := range gp.requirements {
 		err := req.driver.start(ts)
 		if err != nil {
 			return err
@@ -98,15 +106,15 @@ func (ug *UnitGroup) start(ts *TmuxSession) error {
 	return nil
 }
 
-func (ug *UnitGroup) stop(ts *TmuxSession) {
-	for _, req := range ug.requirements {
+func (gp *GroupUnit) stop(ts *TmuxSession) {
+	for _, req := range gp.requirements {
 		req.driver.stop(ts)
 	}
 }
 
-func (ug *UnitGroup) status() UnitStatus {
+func (gp *GroupUnit) status() UnitStatus {
 	allStopping := false
-	for _, req := range ug.requirements {
+	for _, req := range gp.requirements {
 		status := req.driver.status()
 		allStopping = allStopping || status == Stopping
 		if status == Running {
@@ -119,12 +127,12 @@ func (ug *UnitGroup) status() UnitStatus {
 	return Stopped
 }
 
-func (*UnitGroup) forceStopAllowed() bool   { return false }
-func (*UnitGroup) forceStop(_ *TmuxSession) {}
+func (*GroupUnit) forceStopAllowed() bool   { return false }
+func (*GroupUnit) forceStop(_ *TmuxSession) {}
 
-func (ug *UnitGroup) numReqsRunning() int {
+func (gp *GroupUnit) numReqsRunning() int {
 	n := 0
-	for _, req := range ug.requirements {
+	for _, req := range gp.requirements {
 		if req.driver.status() == Running {
 			n++
 		}
@@ -140,8 +148,8 @@ type Unit struct {
 	// If true, this unit is not displayed in the panel.
 	Hidden bool
 
-	Service *UnitProcess `toml:",omitempty"`
-	Target  *UnitGroup   `toml:",omitempty"`
+	Service *ServiceUnit `toml:",omitempty"`
+	Target  *GroupUnit   `toml:",omitempty"`
 	driver  UnitDriver
 }
 
@@ -159,7 +167,7 @@ type Config struct {
 	// Lookup table from [Unit.Name] to the [Unit] itself.
 	// Immutable after load. Generated after unmarshal;.
 	unitsLut    map[string]*Unit
-	tmuxNameLut map[string]*UnitProcess
+	tmuxNameLut map[string]*ServiceUnit
 
 	// Max number of units allowed to run at a time
 	MaxUnits int
@@ -190,7 +198,7 @@ func NewConfig(configFile string) (*Config, error) {
 	}
 
 	res.unitsLut = make(map[string]*Unit)
-	res.tmuxNameLut = make(map[string]*UnitProcess)
+	res.tmuxNameLut = make(map[string]*ServiceUnit)
 	for _, unit := range res.Units {
 		res.unitsLut[unit.Name] = unit
 
@@ -203,8 +211,8 @@ func NewConfig(configFile string) (*Config, error) {
 	}
 	for _, unit := range res.Units {
 		switch unit.driver.(type) {
-		case *UnitProcess:
-			d := unit.driver.(*UnitProcess)
+		case *ServiceUnit:
+			d := unit.driver.(*ServiceUnit)
 			if len(d.TmuxName) == 0 {
 				d.TmuxName = sanitizeTmuxName(unit.Name)
 			}
@@ -213,8 +221,8 @@ func NewConfig(configFile string) (*Config, error) {
 				panic("Duplicate tmux window name '" + d.TmuxName + "'! Possibly caused by generated from unit names that differ only in special non-alphanumeric characters.")
 			}
 			res.tmuxNameLut[d.TmuxName] = d
-		case *UnitGroup:
-			d := unit.driver.(*UnitGroup)
+		case *GroupUnit:
+			d := unit.driver.(*GroupUnit)
 			d.requirements = make([]*Unit, len(d.Requires))
 			for i, subpartName := range d.Requires {
 				d.requirements[i] = res.unitsLut[subpartName]
@@ -227,15 +235,31 @@ func NewConfig(configFile string) (*Config, error) {
 
 func (cfg *Config) BindTmuxSession(ts *TmuxSession) {
 	ts.onProcSpawned = func(proc *TmuxProcess) {
-		up := cfg.tmuxNameLut[proc.Name]
-		if up != nil {
-			up.proc = proc
+		serv := cfg.tmuxNameLut[proc.Name]
+		if serv != nil {
+			serv.procs = append(serv.procs, proc)
 		}
 	}
 	ts.onProcPruned = func(proc *TmuxProcess) {
-		up := cfg.tmuxNameLut[proc.Name]
-		if up != nil {
-			up.proc = nil
+		serv := cfg.tmuxNameLut[proc.Name]
+		if serv != nil {
+			idx := -1
+			for i, known := range serv.procs {
+				if proc == known {
+					idx = i
+					break
+				}
+			}
+			if idx == -1 {
+				fmt.Println("[WARN] process pruned that was never reported to unit manager")
+				return
+			}
+			lastIdx := len(serv.procs) - 1
+			serv.procs[idx] = serv.procs[lastIdx]
+			serv.procs = serv.procs[:lastIdx]
+			if len(serv.procs) == 0 {
+				serv.StoppingAttempt = time.Time{}
+			}
 		}
 	}
 }

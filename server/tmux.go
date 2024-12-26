@@ -3,20 +3,16 @@ package main
 import (
 	"fmt"
 	"os/exec"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 )
 
 type TmuxSession struct {
 	Name string
-	// LUT from [TmuxProcess.WindowIndex] to proc groups.
+	// LUT from [TmuxProcess.PaneId] to proc groups.
 	// Every proc group managed by this session must be inside this map.
 	byPaneId map[int]*TmuxProcess
-	// Proc groups that are about to die or is evident to be dead by a conflicting window index.
-	suspectDead []*TmuxProcess
 
 	onProcSpawned func(*TmuxProcess)
 	onProcPruned  func(*TmuxProcess)
@@ -34,8 +30,6 @@ type TmuxProcess struct {
 	// PID of the process running in this pane
 	Pid int
 
-	// If non-zero, a stop command has been issued but we're not sure it has died.
-	StoppingAttempt time.Time
 	// If true, this process has exited and been removed by [TmuxSession.PollAndPrune].
 	// This field is for let library users to drop the reference to this proc group after it died,
 	// without having to do a lookup in the [TmuxService].
@@ -72,31 +66,14 @@ func NewTmuxSession(sessionName string) (*TmuxSession, error) {
 }
 
 func (ts *TmuxSession) addProcess(proc *TmuxProcess) {
-	old := ts.byPaneId[proc.PaneId]
-	if old != nil {
-		// Not needed. Insertion below overrides it anyways.
-		/* delete(ts.byPaneId, old.PaneId) */
-		ts.suspectDead = append(ts.suspectDead, old)
-	}
-
 	ts.byPaneId[proc.PaneId] = proc
-
 	ts.onProcSpawned(proc)
 }
 
 func (ts *TmuxSession) removeProcess(proc *TmuxProcess) {
-	// In case of [TmuxSession.markSuspectDead] being called, this does nothing
-	// In case the process died on its own, it will still be in the window index lookup table
 	delete(ts.byPaneId, proc.PaneId)
-
 	proc.Dead = true
 	ts.onProcPruned(proc)
-}
-
-func (ts *TmuxSession) markSuspectDead(proc *TmuxProcess) {
-	delete(ts.byPaneId, proc.PaneId)
-	ts.suspectDead = append(ts.suspectDead, proc)
-	proc.StoppingAttempt = time.Now()
 }
 
 // windowName is an arbitary tmux window name for running the processes in.
@@ -149,22 +126,6 @@ func (ts *TmuxSession) PollAndPrune() error {
 			ts.removeProcess(proc)
 		}
 	}
-	// Technically, the "last unprocessed proc group" but that's a long name
-	lastAlive := len(ts.suspectDead) - 1
-	i := 0
-	for i <= lastAlive {
-		suspect := ts.suspectDead[i]
-		err := syscall.Kill(suspect.Pid, syscall.Signal(0))
-		if err != nil {
-			fmt.Printf("removing confirmed suspect dead proc group %%%d pid=%d '%s'\n", suspect.PaneId, suspect.Pid, suspect.Name)
-			ts.removeProcess(suspect)
-			ts.suspectDead[i] = ts.suspectDead[lastAlive]
-			lastAlive--
-		} else {
-			i++
-		}
-	}
-	ts.suspectDead = ts.suspectDead[:lastAlive+1]
 
 	//// Poll for newly created windows by somebody else, keep records and try to map them to units ////
 	cmd := exec.Command(TmuxExecutable, "list-panes", "-s", "-t", ts.targetSession(), "-F", "#{window_index}:#{pane_id}:#{pane_pid}:#{window_name}")
@@ -183,21 +144,17 @@ func (ts *TmuxSession) PollAndPrune() error {
 			continue
 		}
 
-		proc, exists := ts.byPaneId[paneId]
+		_, exists := ts.byPaneId[paneId]
 		if exists {
 			continue
 		}
-		if slices.Contains(ts.suspectDead, proc) {
-			continue
-		}
 
-		proc = &TmuxProcess{
+		ts.addProcess(&TmuxProcess{
 			Name:    windowName,
 			PaneId:  paneId,
 			Pid:     pid,
 			Adopted: true,
-		}
-		ts.addProcess(proc)
+		})
 		fmt.Printf("polled proc group %%%d pid=%d '%s' at window_index=%d", paneId, pid, windowName, windowIndex)
 	}
 
