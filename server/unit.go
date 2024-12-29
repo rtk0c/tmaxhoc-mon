@@ -24,6 +24,27 @@ type UnitDriver interface {
 	forceStop(ts *TmuxSession)
 }
 
+type ServiceUnitStartMode int
+
+const (
+	// Run as a command in a tmux window directly,
+	// by passing [ServiceUnit.Start] to `tmux new-window` (see [TmuxSession.spawnProcess]).
+	ServiceDirectStart ServiceUnitStartMode = iota
+	// Run as startup script, passing our managed tmux session name as the sole argument.
+	// Tmux processed obtained by parsing stdout for lines in the form of tmux -F '#{pane_id}\t{pane_pid}'.
+	ServiceScriptedStart
+)
+
+type ServiceUnitStopMode int
+
+const (
+	// Type something into the tmux window.
+	// by passing [ServiceUnit.Stop] to `tmux send-command` to every process in this unit
+	ServiceInputStop ServiceUnitStopMode = iota
+	// Run as stop script, passing #{pane_id} and #{pane_pid} as additional arguments for each process in this unit.
+	ServiceScriptStop
+)
+
 type ServiceUnit struct {
 	// Name of the tmux window hosting this unit process.
 	TmuxName string
@@ -33,16 +54,11 @@ type ServiceUnit struct {
 
 	procs []*TmuxProcess
 
-	// Arguments to `tmux new-window` (see [TmuxSession.spawnProcess]).
 	Start []string
-	// Arguments to `tmux send-command` to every process in this unit
-	Stop []string
+	Stop  []string
 
-	// If true, start command is run as a process, passing our managed tmux session name as the sole argument,
-	// and parsing stdout for lines in the form of tmux -F '#{pane_id}\t{pane_pid}'.
-	ScriptedStart bool
-	// If true, stop command is run as process, passing #{pane_id} and #{pane_pid} as additional arguments for each process in this unit.
-	ScriptedStop bool
+	StartMode ServiceUnitStartMode
+	StopMode  ServiceUnitStopMode
 }
 
 func (serv *ServiceUnit) start(ts *TmuxSession) error {
@@ -50,17 +66,21 @@ func (serv *ServiceUnit) start(ts *TmuxSession) error {
 		return nil
 	}
 
-	if serv.ScriptedStart {
+	switch serv.StartMode {
+	case ServiceDirectStart:
+		proc, err := ts.spawnProcess(serv.TmuxName, serv.Start...)
+		if err != nil {
+			return err
+		}
+		serv.procs = []*TmuxProcess{proc}
+		return nil
+
+	case ServiceScriptedStart:
 		exe := serv.Start[0]
 		args := serv.Start[1:]
 		return ts.spawnByScript(serv.TmuxName, exe, args...)
 	}
 
-	proc, err := ts.spawnProcess(serv.TmuxName, serv.Start...)
-	if err != nil {
-		return err
-	}
-	serv.procs = []*TmuxProcess{proc}
 	return nil
 }
 
@@ -69,7 +89,14 @@ func (serv *ServiceUnit) stop(ts *TmuxSession) {
 		return
 	}
 
-	if serv.ScriptedStop {
+	switch serv.StopMode {
+	case ServiceInputStop:
+		for _, proc := range serv.procs {
+			ts.SendKeys(proc, serv.Stop...)
+			serv.stoppingAttempt = time.Now()
+		}
+
+	case ServiceScriptStop:
 		args := serv.Stop[1:]
 		for _, proc := range serv.procs {
 			args = append(args, proc.targetPane())
@@ -77,12 +104,6 @@ func (serv *ServiceUnit) stop(ts *TmuxSession) {
 		}
 		cmd := exec.Command(serv.Stop[0], args...)
 		cmd.Run()
-		return
-	}
-
-	for _, proc := range serv.procs {
-		ts.SendKeys(proc, serv.Stop...)
-		serv.stoppingAttempt = time.Now()
 	}
 }
 

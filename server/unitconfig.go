@@ -116,18 +116,18 @@ func NewUnitSystemFromConfig(configFile string) (*UnitSystem, error) {
 
 			if len(cu.Service.StartScript) > 0 {
 				serv.Start = cu.Service.StartScript
-				serv.ScriptedStart = true
+				serv.StartMode = ServiceScriptedStart
 			} else {
 				serv.Start = cu.Service.StartCommand
-				serv.ScriptedStart = false
+				serv.StartMode = ServiceDirectStart
 			}
 
 			if len(cu.Service.StopScript) > 0 {
 				serv.Stop = cu.Service.StopScript
-				serv.ScriptedStop = true
+				serv.StopMode = ServiceScriptStop
 			} else {
 				serv.Stop = cu.Service.StopInput
-				serv.ScriptedStop = false
+				serv.StopMode = ServiceInputStop
 			}
 
 			u.driver = serv
