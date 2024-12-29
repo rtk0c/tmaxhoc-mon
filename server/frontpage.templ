@@ -72,7 +72,7 @@ templ compFrontpage(unitsys *UnitSystem) {
 	</head>
 	<body>
 		<div id="unitsContainer">
-		for _, unit := range unitsys.Units {
+		for _, unit := range unitsys.units {
 			// Seems like templ doesn't support continue
 			if !unit.Hidden {
 				@compServiceUnit(unit)

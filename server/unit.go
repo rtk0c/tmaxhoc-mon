@@ -2,13 +2,9 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
-	"regexp"
 	"strconv"
 	"time"
-
-	"github.com/pelletier/go-toml/v2"
 )
 
 type UnitStatus int
@@ -30,7 +26,7 @@ type UnitDriver interface {
 
 type ServiceUnit struct {
 	// Name of the tmux window hosting this unit process.
-	TmuxName string `toml:"TmuxWindowName"`
+	TmuxName string
 
 	// If non-zero, a stop command has been issued but we're not sure it has died.
 	stoppingAttempt time.Time
@@ -38,9 +34,9 @@ type ServiceUnit struct {
 	procs []*TmuxProcess
 
 	// Arguments to `tmux new-window` (see [TmuxSession.spawnProcess]).
-	StartCommand []string
+	Start []string
 	// Arguments to `tmux send-command` to every process in this unit
-	StopCommand []string
+	Stop []string
 
 	// If true, start command is run as a process, passing our managed tmux session name as the sole argument,
 	// and parsing stdout for lines in the form of tmux -F '#{pane_id}\t{pane_pid}'.
@@ -55,12 +51,12 @@ func (serv *ServiceUnit) start(ts *TmuxSession) error {
 	}
 
 	if serv.ScriptedStart {
-		exe := serv.StartCommand[0]
-		args := serv.StartCommand[1:]
+		exe := serv.Start[0]
+		args := serv.Start[1:]
 		return ts.spawnByScript(serv.TmuxName, exe, args...)
 	}
 
-	proc, err := ts.spawnProcess(serv.TmuxName, serv.StartCommand...)
+	proc, err := ts.spawnProcess(serv.TmuxName, serv.Start...)
 	if err != nil {
 		return err
 	}
@@ -74,18 +70,18 @@ func (serv *ServiceUnit) stop(ts *TmuxSession) {
 	}
 
 	if serv.ScriptedStop {
-		args := serv.StopCommand[1:]
+		args := serv.Stop[1:]
 		for _, proc := range serv.procs {
 			args = append(args, proc.targetPane())
 			args = append(args, strconv.Itoa(proc.Pid))
 		}
-		cmd := exec.Command(serv.StopCommand[0], args...)
+		cmd := exec.Command(serv.Stop[0], args...)
 		cmd.Run()
 		return
 	}
 
 	for _, proc := range serv.procs {
-		ts.SendKeys(proc, serv.StopCommand...)
+		ts.SendKeys(proc, serv.Stop...)
 		serv.stoppingAttempt = time.Now()
 	}
 }
@@ -114,8 +110,6 @@ func (serv *ServiceUnit) forceStop(ts *TmuxSession) {
 
 type GroupUnit struct {
 	// Dependencies listed by [Unit.Name], which are started before this starts, and stopped after this stops.
-	Requires []string
-	// Dependencies references.
 	// Generated after unmarshal.
 	requirements []*Unit
 }
@@ -172,22 +166,14 @@ type Unit struct {
 	// If true, this unit is not displayed in the panel.
 	Hidden bool
 
-	Service *ServiceUnit `toml:",omitempty"`
-	Target  *GroupUnit   `toml:",omitempty"`
-	driver  UnitDriver
-}
-
-var sanitizer = regexp.MustCompile("[^a-zA-Z0-9-_ ]")
-
-func sanitizeTmuxName(s string) string {
-	return sanitizer.ReplaceAllLiteralString(s, "_")
+	driver UnitDriver
 }
 
 type UnitSystem struct {
 	// List of units in the same order as the config file.
 	// Will also be displayed on the panel in this order.
 	// Immutable after load.
-	Units []*Unit
+	units []*Unit
 	// Lookup table from [Unit.Name] to the [Unit] itself.
 	// Immutable after load. Generated after unmarshal;.
 	unitsLut    map[string]*Unit
@@ -200,61 +186,6 @@ type UnitSystem struct {
 
 	// Path to the directory holding static files
 	StaticFilesDir string
-
-	// Template file for the main page
-	FrontpageTemplate string
-}
-
-func NewUnitSystem(configFile string) (*UnitSystem, error) {
-	f, err := os.Open(configFile)
-	if err != nil {
-		panic(err)
-	}
-
-	res := UnitSystem{
-		SessionName:       "tmaxhoc-managed",
-		StaticFilesDir:    "static",
-		FrontpageTemplate: "template/frontpage.tmpl",
-	}
-	err = toml.NewDecoder(f).Decode(&res)
-	if err != nil {
-		panic(err)
-	}
-
-	res.unitsLut = make(map[string]*Unit)
-	res.tmuxNameLut = make(map[string]*ServiceUnit)
-	for _, unit := range res.Units {
-		res.unitsLut[unit.Name] = unit
-
-		// TODO move this sum type over ("Service" UnitProcess | "Target" UnitGroup) hack into a MarshalTOML method
-		if unit.Service != nil {
-			unit.driver = unit.Service
-		} else if unit.Target != nil {
-			unit.driver = unit.Target
-		}
-	}
-	for _, unit := range res.Units {
-		switch unit.driver.(type) {
-		case *ServiceUnit:
-			d := unit.driver.(*ServiceUnit)
-			if len(d.TmuxName) == 0 {
-				d.TmuxName = sanitizeTmuxName(unit.Name)
-			}
-			_, exists := res.tmuxNameLut[d.TmuxName]
-			if exists {
-				panic("Duplicate tmux window name '" + d.TmuxName + "'! Possibly caused by generated from unit names that differ only in special non-alphanumeric characters.")
-			}
-			res.tmuxNameLut[d.TmuxName] = d
-		case *GroupUnit:
-			d := unit.driver.(*GroupUnit)
-			d.requirements = make([]*Unit, len(d.Requires))
-			for i, subpartName := range d.Requires {
-				d.requirements[i] = res.unitsLut[subpartName]
-			}
-		}
-	}
-
-	return &res, nil
 }
 
 func (cfg *UnitSystem) BindTmuxSession(ts *TmuxSession) {
@@ -300,7 +231,7 @@ func (cfg *UnitSystem) MatchByName(name string) *Unit {
 
 func (cfg *UnitSystem) RunningServicesCount() int {
 	count := 0
-	for _, unit := range cfg.Units {
+	for _, unit := range cfg.units {
 		switch unit.driver.(type) {
 		case *ServiceUnit:
 			if unit.driver.status() == Running {

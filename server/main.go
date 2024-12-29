@@ -94,7 +94,7 @@ func main() {
 	configFile := flag.String("config", "config.toml", "Path to the config file")
 	flag.Parse()
 
-	unitsys, err = NewUnitSystem(*configFile)
+	unitsys, err = NewUnitSystemFromConfig(*configFile)
 	if err != nil {
 		panic(err)
 	}
