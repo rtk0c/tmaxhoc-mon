@@ -183,7 +183,7 @@ func sanitizeTmuxName(s string) string {
 	return sanitizer.ReplaceAllLiteralString(s, "_")
 }
 
-type Config struct {
+type UnitSystem struct {
 	// List of units in the same order as the config file.
 	// Will also be displayed on the panel in this order.
 	// Immutable after load.
@@ -205,13 +205,13 @@ type Config struct {
 	FrontpageTemplate string
 }
 
-func NewConfig(configFile string) (*Config, error) {
+func NewUnitSystem(configFile string) (*UnitSystem, error) {
 	f, err := os.Open(configFile)
 	if err != nil {
 		panic(err)
 	}
 
-	res := Config{
+	res := UnitSystem{
 		SessionName:       "tmaxhoc-managed",
 		StaticFilesDir:    "static",
 		FrontpageTemplate: "template/frontpage.tmpl",
@@ -257,7 +257,7 @@ func NewConfig(configFile string) (*Config, error) {
 	return &res, nil
 }
 
-func (cfg *Config) BindTmuxSession(ts *TmuxSession) {
+func (cfg *UnitSystem) BindTmuxSession(ts *TmuxSession) {
 	ts.onProcSpawned = func(proc *TmuxProcess) {
 		serv := cfg.tmuxNameLut[proc.Name]
 		if serv != nil {
@@ -289,7 +289,7 @@ func (cfg *Config) BindTmuxSession(ts *TmuxSession) {
 }
 
 // Nullable
-func (cfg *Config) MatchByName(name string) *Unit {
+func (cfg *UnitSystem) MatchByName(name string) *Unit {
 	// TODO better fuzzy matching algorithm; ideas:
 	// - case insensitive matching
 	// - whitespace/-/_ insensitive matching
@@ -298,7 +298,7 @@ func (cfg *Config) MatchByName(name string) *Unit {
 	return cfg.unitsLut[name]
 }
 
-func (cfg *Config) RunningServicesCount() int {
+func (cfg *UnitSystem) RunningServicesCount() int {
 	count := 0
 	for _, unit := range cfg.Units {
 		switch unit.driver.(type) {

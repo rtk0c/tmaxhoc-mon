@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-var conf *Config
+var unitsys *UnitSystem
 var ts *TmuxSession
 var modelLock sync.RWMutex
 
@@ -17,21 +17,21 @@ func httpHandler(w http.ResponseWriter, req *http.Request) {
 	modelLock.RLock()
 	defer modelLock.RUnlock()
 
-	component := compFrontpage(conf)
+	component := compFrontpage(unitsys)
 	component.Render(context.Background(), w)
 }
 
 func apiStartUnit(w http.ResponseWriter, req *http.Request) {
-	if conf.MaxUnits > 0 && conf.RunningServicesCount() >= conf.MaxUnits {
+	if unitsys.MaxUnits > 0 && unitsys.RunningServicesCount() >= unitsys.MaxUnits {
 		http.Error(w, fmt.Sprintf(`
 Failed to start unit:
 Cannot run more than %d server at the same time. Please stop something else before starting this server.
-Use the browser back button to go to the server panel again.`, conf.MaxUnits), http.StatusForbidden)
+Use the browser back button to go to the server panel again.`, unitsys.MaxUnits), http.StatusForbidden)
 		return
 	}
 
 	unitName := req.FormValue("unit")
-	unit := conf.unitsLut[unitName]
+	unit := unitsys.unitsLut[unitName]
 	fmt.Printf("got /api/start-unit for unit=%s\n", unitName)
 
 	if unit != nil {
@@ -45,7 +45,7 @@ Use the browser back button to go to the server panel again.`, conf.MaxUnits), h
 
 func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 	unitName := req.FormValue("unit")
-	unit := conf.unitsLut[unitName]
+	unit := unitsys.unitsLut[unitName]
 	fmt.Printf("got /api/stop-unit for unit=%s\n", unitName)
 	if unit == nil {
 		return
@@ -94,17 +94,17 @@ func main() {
 	configFile := flag.String("config", "config.toml", "Path to the config file")
 	flag.Parse()
 
-	conf, err = NewConfig(*configFile)
+	unitsys, err = NewUnitSystem(*configFile)
 	if err != nil {
 		panic(err)
 	}
 
-	ts, err = NewTmuxSession(conf.SessionName)
+	ts, err = NewTmuxSession(unitsys.SessionName)
 	if err != nil {
 		panic(err)
 	}
 
-	conf.BindTmuxSession(ts)
+	unitsys.BindTmuxSession(ts)
 
 	// TODO event loop, and instead of tracking a "suspect dead list", don't store newly spawned processes at all,
 	//   but instead immediately queue a PollAndPrune() to detect the new proc group (and reset the timer)
@@ -129,6 +129,6 @@ func main() {
 	http.HandleFunc("/", httpHandler)
 	http.HandleFunc("POST /api/start-unit", apiStartUnit)
 	http.HandleFunc("POST /api/stop-unit", apiStopUnit)
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(conf.StaticFilesDir))))
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(unitsys.StaticFilesDir))))
 	http.ListenAndServe(":8005", nil)
 }
