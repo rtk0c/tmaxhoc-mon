@@ -68,11 +68,11 @@ func (serv *ServiceUnit) start(ts *TmuxSession) error {
 
 	switch serv.StartMode {
 	case ServiceDirectStart:
-		proc, err := ts.spawnProcess(serv.TmuxName, serv.Start...)
+		// [TmuxSession.spawnProcess] through the callback already adds proc to this unit
+		_, err := ts.spawnProcess(serv.TmuxName, serv.Start...)
 		if err != nil {
 			return err
 		}
-		serv.procs = []*TmuxProcess{proc}
 		return nil
 
 	case ServiceScriptedStart:
@@ -93,8 +93,8 @@ func (serv *ServiceUnit) stop(ts *TmuxSession) {
 	case ServiceInputStop:
 		for _, proc := range serv.procs {
 			ts.SendKeys(proc, serv.Stop...)
-			serv.stoppingAttempt = time.Now()
 		}
+		serv.stoppingAttempt = time.Now()
 
 	case ServiceScriptStop:
 		args := serv.Stop[1:]
@@ -104,6 +104,7 @@ func (serv *ServiceUnit) stop(ts *TmuxSession) {
 		}
 		cmd := exec.Command(serv.Stop[0], args...)
 		cmd.Run()
+		serv.stoppingAttempt = time.Now()
 	}
 }
 
