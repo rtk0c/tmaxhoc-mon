@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os/exec"
-	"strconv"
 	"time"
 )
 
@@ -15,6 +13,7 @@ const (
 	Running
 )
 
+// TODO get this a better name, "driver" is now used by ServiceLifecycleDriver
 type UnitDriver interface {
 	start(ts *TmuxSession) error
 	stop(ts *TmuxSession)
@@ -24,26 +23,10 @@ type UnitDriver interface {
 	forceStop(ts *TmuxSession)
 }
 
-type ServiceUnitStartMode int
-
-const (
-	// Run as a command in a tmux window directly,
-	// by passing [ServiceUnit.Start] to `tmux new-window` (see [TmuxSession.spawnProcess]).
-	ServiceDirectStart ServiceUnitStartMode = iota
-	// Run as startup script, passing our managed tmux session name as the sole argument.
-	// Tmux processed obtained by parsing stdout for lines in the form of tmux -F '#{pane_id}\t{pane_pid}'.
-	ServiceScriptedStart
-)
-
-type ServiceUnitStopMode int
-
-const (
-	// Type something into the tmux window.
-	// by passing [ServiceUnit.Stop] to `tmux send-command` to every process in this unit
-	ServiceInputStop ServiceUnitStopMode = iota
-	// Run as stop script, passing #{pane_id} and #{pane_pid} as additional arguments for each process in this unit.
-	ServiceScriptStop
-)
+type ServiceLifecycleDriver interface {
+	start(serv *ServiceUnit, ts *TmuxSession) error
+	stop(serv *ServiceUnit, ts *TmuxSession)
+}
 
 type ServiceUnit struct {
 	// Name of the tmux window hosting this unit process.
@@ -54,11 +37,7 @@ type ServiceUnit struct {
 
 	procs []*TmuxProcess
 
-	Start []string
-	Stop  []string
-
-	StartMode ServiceUnitStartMode
-	StopMode  ServiceUnitStopMode
+	lifecycleDriver ServiceLifecycleDriver
 }
 
 func (serv *ServiceUnit) start(ts *TmuxSession) error {
@@ -66,22 +45,7 @@ func (serv *ServiceUnit) start(ts *TmuxSession) error {
 		return nil
 	}
 
-	switch serv.StartMode {
-	case ServiceDirectStart:
-		proc, err := ts.spawnProcess(serv.TmuxName, serv.Start...)
-		if err != nil {
-			return err
-		}
-		serv.procs = []*TmuxProcess{proc}
-		return nil
-
-	case ServiceScriptedStart:
-		exe := serv.Start[0]
-		args := serv.Start[1:]
-		return ts.spawnByScript(serv.TmuxName, exe, args...)
-	}
-
-	return nil
+	return serv.lifecycleDriver.start(serv, ts)
 }
 
 func (serv *ServiceUnit) stop(ts *TmuxSession) {
@@ -89,22 +53,8 @@ func (serv *ServiceUnit) stop(ts *TmuxSession) {
 		return
 	}
 
-	switch serv.StopMode {
-	case ServiceInputStop:
-		for _, proc := range serv.procs {
-			ts.SendKeys(proc, serv.Stop...)
-			serv.stoppingAttempt = time.Now()
-		}
-
-	case ServiceScriptStop:
-		args := serv.Stop[1:]
-		for _, proc := range serv.procs {
-			args = append(args, proc.targetPane())
-			args = append(args, strconv.Itoa(proc.Pid))
-		}
-		cmd := exec.Command(serv.Stop[0], args...)
-		cmd.Run()
-	}
+	serv.lifecycleDriver.stop(serv, ts)
+	serv.stoppingAttempt = time.Now()
 }
 
 func (serv *ServiceUnit) status() UnitStatus {

@@ -11,12 +11,16 @@ import (
 type configServiceUnit struct {
 	TmuxWindowName string
 
+	/* case 1 */
 	/* union */
 	StartCommand []string
 	StartScript  []string
-
+	/* union */
 	StopInput  []string
 	StopScript []string
+
+	/* case 2 */
+	DontStarveTogether *SlfdrvDontStarveTogether
 }
 
 type configGroupUnit struct {
@@ -100,7 +104,12 @@ func NewUnitSystemFromConfig(configFile string) (*UnitSystem, error) {
 			Hidden:      cu.Hidden,
 		}
 
-		if cu.Service != nil {
+		if cu.Target != nil {
+			grp := &GroupUnit{}
+			// requirements filled afterwards when the name LUT is fully built
+			cu.Target.linkedGroupUnit = grp
+			u.driver = grp
+		} else if cu.Service != nil {
 			serv := &ServiceUnit{
 				TmuxName: cu.Service.TmuxWindowName,
 			}
@@ -114,28 +123,41 @@ func NewUnitSystemFromConfig(configFile string) (*UnitSystem, error) {
 			}
 			res.tmuxNameLut[serv.TmuxName] = serv
 
-			if len(cu.Service.StartScript) > 0 {
-				serv.Start = cu.Service.StartScript
-				serv.StartMode = ServiceScriptedStart
+			if cusdst := cu.Service.DontStarveTogether; cusdst != nil {
+				if len(cusdst.GameInstall) == 0 {
+					return nil, errors.New("field GameInstall cannot be empty")
+				}
+				if len(cusdst.DataDir) == 0 {
+					return nil, errors.New("field DataDir cannot be empty")
+				}
+				if len(cusdst.Cluster) == 0 {
+					return nil, errors.New("field Cluster cannot be empty")
+				}
+				if len(cusdst.Shards) == 0 {
+					return nil, errors.New("field Shards cannot be empty")
+				}
+				drv := SlfdrvDontStarveTogether(*cusdst)
+				serv.lifecycleDriver = &drv
 			} else {
-				serv.Start = cu.Service.StartCommand
-				serv.StartMode = ServiceDirectStart
-			}
-
-			if len(cu.Service.StopScript) > 0 {
-				serv.Stop = cu.Service.StopScript
-				serv.StopMode = ServiceScriptStop
-			} else {
-				serv.Stop = cu.Service.StopInput
-				serv.StopMode = ServiceInputStop
+				drv := &SlfdrvSimple{}
+				if len(cu.Service.StartScript) > 0 {
+					drv.Start = cu.Service.StartScript
+					drv.StartMode = ServiceScriptedStart
+				} else {
+					drv.Start = cu.Service.StartCommand
+					drv.StartMode = ServiceDirectStart
+				}
+				if len(cu.Service.StopScript) > 0 {
+					drv.Stop = cu.Service.StopScript
+					drv.StopMode = ServiceScriptStop
+				} else {
+					drv.Stop = cu.Service.StopInput
+					drv.StopMode = ServiceInputStop
+				}
+				serv.lifecycleDriver = drv
 			}
 
 			u.driver = serv
-		} else if cu.Target != nil {
-			grp := &GroupUnit{}
-			// requirements filled afterwards when the name LUT is fully built
-			cu.Target.linkedGroupUnit = grp
-			u.driver = grp
 		}
 
 		res.units = append(res.units, u)

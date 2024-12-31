@@ -7,7 +7,7 @@ import (
 	"path"
 )
 
-type DontStarveDriver struct {
+type SlfdrvDontStarveTogether struct {
 	GameInstall string
 
 	DataDir string
@@ -27,7 +27,7 @@ type DontStarveDriver struct {
 
 // TODO only tested on linux
 
-func (drv *DontStarveDriver) start(serv *ServiceUnit, ts *TmuxSession) error {
+func (drv *SlfdrvDontStarveTogether) start(serv *ServiceUnit, ts *TmuxSession) error {
 	var dstCwd, dstBin string
 	if drv.Use32bit {
 		dstCwd = path.Join(drv.GameInstall, "bin")
@@ -100,5 +100,13 @@ func (drv *DontStarveDriver) start(serv *ServiceUnit, ts *TmuxSession) error {
 		if err != nil {
 			fmt.Printf("[WARN] [DST] spawning shard %s failed: %s\n", shard, err)
 		}
+	}
+
+	return nil
+}
+
+func (drv *SlfdrvDontStarveTogether) stop(serv *ServiceUnit, ts *TmuxSession) {
+	for _, proc := range serv.procs {
+		ts.SendKeys(proc, "c_shutdown()", "Enter")
 	}
 }
