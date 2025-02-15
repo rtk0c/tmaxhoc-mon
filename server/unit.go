@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -143,6 +144,18 @@ type Unitv interface {
 	forceStop(ts *TmuxSession)
 }
 
+func DecorateTmuxName(name string, extra string) string {
+	return name + "$$" + extra
+}
+
+func UndecorateTmuxName(deco string) (string, string) {
+	i := strings.Index(deco, "$$")
+	if i == -1 {
+		return deco, ""
+	}
+	return deco[:i], deco[(i + len("$$")):]
+}
+
 type UnitSystem struct {
 	// List of units in the same order as the config file.
 	// Will also be displayed on the panel in this order.
@@ -166,7 +179,8 @@ type UnitSystem struct {
 
 func (cfg *UnitSystem) BindTmuxSession(ts *TmuxSession) {
 	ts.onProcSpawned = func(proc *TmuxProcess) {
-		serv := cfg.tmuxNameLut[proc.Name]
+		tmuxName, _ := UndecorateTmuxName(proc.Name)
+		serv := cfg.tmuxNameLut[tmuxName]
 		if serv == nil {
 			return
 		}
@@ -181,7 +195,8 @@ func (cfg *UnitSystem) BindTmuxSession(ts *TmuxSession) {
 		serv.procs = append(serv.procs, proc)
 	}
 	ts.onProcPruned = func(proc *TmuxProcess) {
-		serv := cfg.tmuxNameLut[proc.Name]
+		tmuxName, _ := UndecorateTmuxName(proc.Name)
+		serv := cfg.tmuxNameLut[tmuxName]
 		if serv == nil {
 			return
 		}

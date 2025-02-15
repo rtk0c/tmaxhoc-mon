@@ -58,6 +58,7 @@ type config struct {
 	MaxRunningUnits int
 }
 
+// NOTE: $ cannot be here even if tmux works with it, since it's used as the decoration delimiter
 var sanitizer = regexp.MustCompile("[^a-zA-Z0-9()[]{}-_=+,.; ]")
 
 func sanitizeTmuxName(s string) string {

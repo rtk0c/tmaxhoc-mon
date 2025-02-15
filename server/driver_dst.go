@@ -99,9 +99,7 @@ func (drv *SlfdrvDontStarveTogether) start(serv *Unitv4Service, ts *TmuxSession)
 		if !drv.ShardUniqueMods || (drv.ShardUniqueMods && drv.UpdateMods) {
 			cmdParts = append(cmdParts, "-skip_update_server_mods")
 		}
-		// HACK: we suffix TmuxName with the shard name, so the automatic process associating mechanism (which relies on windowe name lookups) doesn't work
-		proc, err := ts.spawnProcess(serv.TmuxName+"."+shard, cmdParts...)
-		serv.procs = append(serv.procs, proc)
+		_, err := ts.spawnProcess(DecorateTmuxName(serv.TmuxName, shard), cmdParts...)
 		if err != nil {
 			fmt.Printf("[WARN] [DST] spawning shard %s failed: %s\n", shard, err)
 		}
