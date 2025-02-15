@@ -179,7 +179,15 @@ func (ts *TmuxSession) PollAndPrune() error {
 	for _, line := range strings.Split(string(panes), "\n") {
 		var paneId, pid int
 		var windowName string
-		fmt.Sscanf(line, "%%%d\t%d\t%s", &paneId, &pid, &windowName)
+		{
+			parts := strings.Split(line, "\t")
+			if len(parts) != 3 {
+				continue
+			}
+			paneId, _ = strconv.Atoi(parts[0][1:]) // %123
+			pid, _ = strconv.Atoi(parts[1])
+			windowName = parts[2]
+		}
 
 		if paneId == ts.reservedWindowPaneId {
 			continue
