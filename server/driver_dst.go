@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"time"
 )
 
 type SlfdrvDontStarveTogether struct {
@@ -44,7 +45,9 @@ func (drv *SlfdrvDontStarveTogether) start(serv *Unitv4Service, ts *TmuxSession)
 	os.Chdir(dstCwd)
 	defer os.Chdir(cwd)
 
-	dataDirPrefix := path.Dir(drv.DataDir)
+	// Clean first, because path.Dir("/path/to/folder/") gives "/path/to/folder", undesirable
+	// (it treats the trailing slash as the "file part")
+	dataDirPrefix := path.Dir(path.Clean(drv.DataDir))
 	dataDirLast := path.Base(drv.DataDir)
 
 	commonCommand := []string{
@@ -96,7 +99,9 @@ func (drv *SlfdrvDontStarveTogether) start(serv *Unitv4Service, ts *TmuxSession)
 		if !drv.ShardUniqueMods || (drv.ShardUniqueMods && drv.UpdateMods) {
 			cmdParts = append(cmdParts, "-skip_update_server_mods")
 		}
-		_, err := ts.spawnProcess(serv.TmuxName, cmdParts...)
+		// HACK: we suffix TmuxName with the shard name, so the automatic process associating mechanism (which relies on windowe name lookups) doesn't work
+		proc, err := ts.spawnProcess(serv.TmuxName+"."+shard, cmdParts...)
+		serv.procs = append(serv.procs, proc)
 		if err != nil {
 			fmt.Printf("[WARN] [DST] spawning shard %s failed: %s\n", shard, err)
 		}
@@ -108,5 +113,14 @@ func (drv *SlfdrvDontStarveTogether) start(serv *Unitv4Service, ts *TmuxSession)
 func (drv *SlfdrvDontStarveTogether) stop(serv *Unitv4Service, ts *TmuxSession) {
 	for _, proc := range serv.procs {
 		ts.SendKeys(proc, "c_shutdown()", "Enter")
+	}
+	// DST server doesn't exit after stopping, for some reason
+	time.Sleep(2 * time.Second)
+	for _, proc := range serv.procs {
+		ts.SendKeys(proc, "C-c")
+	}
+	time.Sleep(1 * time.Second)
+	for _, proc := range serv.procs {
+		ts.SendKeys(proc, "C-c")
 	}
 }

@@ -58,7 +58,7 @@ type config struct {
 	MaxRunningUnits int
 }
 
-var sanitizer = regexp.MustCompile("[^a-zA-Z0-9-_ ]")
+var sanitizer = regexp.MustCompile("[^a-zA-Z0-9()[]{}-_=+,.; ]")
 
 func sanitizeTmuxName(s string) string {
 	return sanitizer.ReplaceAllLiteralString(s, "_")

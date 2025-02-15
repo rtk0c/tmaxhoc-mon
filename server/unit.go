@@ -149,8 +149,10 @@ type UnitSystem struct {
 	// Immutable after load.
 	units []*Unit
 	// Lookup table from [Unit.Name] to the [Unit] itself.
-	// Immutable after load. Generated after unmarshal;.
-	unitsLut    map[string]*Unit
+	// Immutable after load. Generated after unmarshal.
+	unitsLut map[string]*Unit
+	// Lookup table from [Unit.TmuxName] to the [Unitv4Service] that generates i
+	// Immutable after load. Generated after unmarshal.
 	tmuxNameLut map[string]*Unitv4Service
 
 	// Max number of units allowed to run at a time
@@ -165,30 +167,41 @@ type UnitSystem struct {
 func (cfg *UnitSystem) BindTmuxSession(ts *TmuxSession) {
 	ts.onProcSpawned = func(proc *TmuxProcess) {
 		serv := cfg.tmuxNameLut[proc.Name]
-		if serv != nil {
-			serv.procs = append(serv.procs, proc)
+		if serv == nil {
+			return
 		}
+
+		// HACK: Avoid adding duplicate processes, if the driver decided to add their own.
+		//       This relies on the fact that TmuxSession only ever creates one TmuxProcess objects per (pane_id, pid), so pointer comparision is unique
+		for _, proc2 := range serv.procs {
+			if proc2 == proc {
+				return
+			}
+		}
+		serv.procs = append(serv.procs, proc)
 	}
 	ts.onProcPruned = func(proc *TmuxProcess) {
 		serv := cfg.tmuxNameLut[proc.Name]
-		if serv != nil {
-			idx := -1
-			for i, known := range serv.procs {
-				if proc == known {
-					idx = i
-					break
-				}
+		if serv == nil {
+			return
+		}
+
+		idx := -1
+		for i, known := range serv.procs {
+			if proc == known {
+				idx = i
+				break
 			}
-			if idx == -1 {
-				fmt.Println("[WARN] process pruned that was never reported to unit manager")
-				return
-			}
-			lastIdx := len(serv.procs) - 1
-			serv.procs[idx] = serv.procs[lastIdx]
-			serv.procs = serv.procs[:lastIdx]
-			if len(serv.procs) == 0 {
-				serv.stoppingAttempt = time.Time{}
-			}
+		}
+		if idx == -1 {
+			fmt.Println("[WARN] process pruned that was never reported to unit manager")
+			return
+		}
+		lastIdx := len(serv.procs) - 1
+		serv.procs[idx] = serv.procs[lastIdx]
+		serv.procs = serv.procs[:lastIdx]
+		if len(serv.procs) == 0 {
+			serv.stoppingAttempt = time.Time{}
 		}
 	}
 }
