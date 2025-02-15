@@ -8,11 +8,11 @@ templ compServiceUnit(unit *Unit) {
 	{{
 	var unitClass string
 	var tooltip string
-	switch unit.driver.(type) {
-	case *ServiceUnit:
+	switch unit.v.(type) {
+	case *Unitv4Service:
 		unitClass = "unitservice"
 		tooltip = "A standalone service"
-	case *GroupUnit:
+	case *Unitv4Group:
 		unitClass = "unitgroup"
 		tooltip = "Many subpart services grouped together"
 	}
@@ -25,7 +25,7 @@ templ compServiceUnit(unit *Unit) {
 
 	<div class={ "unit", unitClass } { attrs... }>
 	<p class="unit-name" title={ tooltip }>{ unit.Name }</p>
-	switch unit.driver.status() {
+	switch unit.v.status() {
 	case Stopped:
 		<span class="marker marker-stopped">Stopped</span>
 		<form class="unit-action" method="post" action="/api/start-unit">
@@ -34,7 +34,7 @@ templ compServiceUnit(unit *Unit) {
 		</form>
 	case Stopping:
 		<span class="marker marker-stopping">Stopping</span>
-		if unit.driver.forceStopAllowed() {
+		if unit.v.forceStopAllowed() {
 			<form class="unit-action" method="post" action="/api/stop-unit">
 				<input type="hidden" name="unit" value={ unit.Name }>
 				<input type="hidden" name="force" value="true">
@@ -48,10 +48,10 @@ templ compServiceUnit(unit *Unit) {
 			<input type="submit" value="Stop">
 		</form>
 	}
-	switch unit.driver.(type) {
-	case *GroupUnit:
+	switch unit.v.(type) {
+	case *Unitv4Group:
 		{{
-		d := unit.driver.(*GroupUnit)
+		d := unit.v.(*Unitv4Group)
 		n := d.numReqsRunning()
 		outOf := len(d.requirements)
 		}}

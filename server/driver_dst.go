@@ -27,7 +27,7 @@ type SlfdrvDontStarveTogether struct {
 
 // TODO only tested on linux
 
-func (drv *SlfdrvDontStarveTogether) start(serv *ServiceUnit, ts *TmuxSession) error {
+func (drv *SlfdrvDontStarveTogether) start(serv *Unitv4Service, ts *TmuxSession) error {
 	var dstCwd, dstBin string
 	if drv.Use32bit {
 		dstCwd = path.Join(drv.GameInstall, "bin")
@@ -105,7 +105,7 @@ func (drv *SlfdrvDontStarveTogether) start(serv *ServiceUnit, ts *TmuxSession) e
 	return nil
 }
 
-func (drv *SlfdrvDontStarveTogether) stop(serv *ServiceUnit, ts *TmuxSession) {
+func (drv *SlfdrvDontStarveTogether) stop(serv *Unitv4Service, ts *TmuxSession) {
 	for _, proc := range serv.procs {
 		ts.SendKeys(proc, "c_shutdown()", "Enter")
 	}

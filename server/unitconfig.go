@@ -26,7 +26,7 @@ type configServiceUnit struct {
 type configGroupUnit struct {
 	Requires []string
 
-	linkedGroupUnit *GroupUnit
+	linkedGroupUnit *Unitv4Group
 }
 
 type configUnit struct {
@@ -87,7 +87,7 @@ func NewUnitSystemFromConfig(configFile string) (*UnitSystem, error) {
 	res := &UnitSystem{
 		units:       []*Unit{},
 		unitsLut:    make(map[string]*Unit),
-		tmuxNameLut: make(map[string]*ServiceUnit),
+		tmuxNameLut: make(map[string]*Unitv4Service),
 
 		MaxUnits: cfg.MaxRunningUnits,
 
@@ -105,12 +105,12 @@ func NewUnitSystemFromConfig(configFile string) (*UnitSystem, error) {
 		}
 
 		if cu.Target != nil {
-			grp := &GroupUnit{}
+			grp := &Unitv4Group{}
 			// requirements filled afterwards when the name LUT is fully built
 			cu.Target.linkedGroupUnit = grp
-			u.driver = grp
+			u.v = grp
 		} else if cu.Service != nil {
-			serv := &ServiceUnit{
+			serv := &Unitv4Service{
 				TmuxName: cu.Service.TmuxWindowName,
 			}
 
@@ -157,7 +157,9 @@ func NewUnitSystemFromConfig(configFile string) (*UnitSystem, error) {
 				serv.lifecycleDriver = drv
 			}
 
-			u.driver = serv
+			u.v = serv
+		} else {
+			return nil, errors.New("unit must have either Service or Target section")
 		}
 
 		res.units = append(res.units, u)

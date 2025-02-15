@@ -34,7 +34,7 @@ type SlfdrvSimple struct {
 	StopMode  ServiceUnitStopMode
 }
 
-func (drv *SlfdrvSimple) start(serv *ServiceUnit, ts *TmuxSession) error {
+func (drv *SlfdrvSimple) start(serv *Unitv4Service, ts *TmuxSession) error {
 	switch drv.StartMode {
 	case ServiceDirectStart:
 		_, err := ts.spawnProcess(serv.TmuxName, drv.Start...)
@@ -52,7 +52,7 @@ func (drv *SlfdrvSimple) start(serv *ServiceUnit, ts *TmuxSession) error {
 	return nil
 }
 
-func (drv *SlfdrvSimple) stop(serv *ServiceUnit, ts *TmuxSession) {
+func (drv *SlfdrvSimple) stop(serv *Unitv4Service, ts *TmuxSession) {
 	switch drv.StopMode {
 	case ServiceInputStop:
 		for _, proc := range serv.procs {

@@ -13,22 +13,8 @@ const (
 	Running
 )
 
-// TODO get this a better name, "driver" is now used by ServiceLifecycleDriver
-type UnitDriver interface {
-	start(ts *TmuxSession) error
-	stop(ts *TmuxSession)
-	status() UnitStatus
-
-	forceStopAllowed() bool
-	forceStop(ts *TmuxSession)
-}
-
-type ServiceLifecycleDriver interface {
-	start(serv *ServiceUnit, ts *TmuxSession) error
-	stop(serv *ServiceUnit, ts *TmuxSession)
-}
-
-type ServiceUnit struct {
+// A workload backed directly by some processes.
+type Unitv4Service struct {
 	// Name of the tmux window hosting this unit process.
 	TmuxName string
 
@@ -40,7 +26,12 @@ type ServiceUnit struct {
 	lifecycleDriver ServiceLifecycleDriver
 }
 
-func (serv *ServiceUnit) start(ts *TmuxSession) error {
+type ServiceLifecycleDriver interface {
+	start(serv *Unitv4Service, ts *TmuxSession) error
+	stop(serv *Unitv4Service, ts *TmuxSession)
+}
+
+func (serv *Unitv4Service) start(ts *TmuxSession) error {
 	if len(serv.procs) > 0 {
 		return nil
 	}
@@ -48,7 +39,7 @@ func (serv *ServiceUnit) start(ts *TmuxSession) error {
 	return serv.lifecycleDriver.start(serv, ts)
 }
 
-func (serv *ServiceUnit) stop(ts *TmuxSession) {
+func (serv *Unitv4Service) stop(ts *TmuxSession) {
 	if len(serv.procs) == 0 {
 		return
 	}
@@ -57,7 +48,7 @@ func (serv *ServiceUnit) stop(ts *TmuxSession) {
 	serv.stoppingAttempt = time.Now()
 }
 
-func (serv *ServiceUnit) status() UnitStatus {
+func (serv *Unitv4Service) status() UnitStatus {
 	if len(serv.procs) > 0 {
 		if serv.stoppingAttempt.IsZero() {
 			return Running
@@ -69,25 +60,26 @@ func (serv *ServiceUnit) status() UnitStatus {
 	}
 }
 
-func (serv *ServiceUnit) forceStopAllowed() bool {
+func (serv *Unitv4Service) forceStopAllowed() bool {
 	return serv.status() == Stopping && time.Since(serv.stoppingAttempt) > 10*time.Second
 }
 
-func (serv *ServiceUnit) forceStop(ts *TmuxSession) {
+func (serv *Unitv4Service) forceStop(ts *TmuxSession) {
 	for _, proc := range serv.procs {
 		ts.ForceKillProcess(proc)
 	}
 }
 
-type GroupUnit struct {
+// A workload that exists as a composite of some other workloads.
+type Unitv4Group struct {
 	// Dependencies listed by [Unit.Name], which are started before this starts, and stopped after this stops.
 	// Generated after unmarshal.
 	requirements []*Unit
 }
 
-func (gp *GroupUnit) start(ts *TmuxSession) error {
+func (gp *Unitv4Group) start(ts *TmuxSession) error {
 	for _, req := range gp.requirements {
-		err := req.driver.start(ts)
+		err := req.v.start(ts)
 		if err != nil {
 			return err
 		}
@@ -95,16 +87,16 @@ func (gp *GroupUnit) start(ts *TmuxSession) error {
 	return nil
 }
 
-func (gp *GroupUnit) stop(ts *TmuxSession) {
+func (gp *Unitv4Group) stop(ts *TmuxSession) {
 	for _, req := range gp.requirements {
-		req.driver.stop(ts)
+		req.v.stop(ts)
 	}
 }
 
-func (gp *GroupUnit) status() UnitStatus {
+func (gp *Unitv4Group) status() UnitStatus {
 	allStopping := false
 	for _, req := range gp.requirements {
-		status := req.driver.status()
+		status := req.v.status()
 		allStopping = allStopping || status == Stopping
 		if status == Running {
 			return Running
@@ -116,19 +108,20 @@ func (gp *GroupUnit) status() UnitStatus {
 	return Stopped
 }
 
-func (*GroupUnit) forceStopAllowed() bool   { return false }
-func (*GroupUnit) forceStop(_ *TmuxSession) {}
+func (*Unitv4Group) forceStopAllowed() bool   { return false }
+func (*Unitv4Group) forceStop(_ *TmuxSession) {}
 
-func (gp *GroupUnit) numReqsRunning() int {
+func (gp *Unitv4Group) numReqsRunning() int {
 	n := 0
 	for _, req := range gp.requirements {
-		if req.driver.status() == Running {
+		if req.v.status() == Running {
 			n++
 		}
 	}
 	return n
 }
 
+// A single managed workload. What happens when this workload is started/stopped varies by the exact kind of this workload.
 type Unit struct {
 	Name        string
 	Description string
@@ -137,7 +130,17 @@ type Unit struct {
 	// If true, this unit is not displayed in the panel.
 	Hidden bool
 
-	driver UnitDriver
+	// The "virtual" part of this unit that determines the kind
+	v Unitv
+}
+
+type Unitv interface {
+	start(ts *TmuxSession) error
+	stop(ts *TmuxSession)
+	status() UnitStatus
+
+	forceStopAllowed() bool
+	forceStop(ts *TmuxSession)
 }
 
 type UnitSystem struct {
@@ -148,7 +151,7 @@ type UnitSystem struct {
 	// Lookup table from [Unit.Name] to the [Unit] itself.
 	// Immutable after load. Generated after unmarshal;.
 	unitsLut    map[string]*Unit
-	tmuxNameLut map[string]*ServiceUnit
+	tmuxNameLut map[string]*Unitv4Service
 
 	// Max number of units allowed to run at a time
 	MaxUnits int
@@ -203,9 +206,9 @@ func (cfg *UnitSystem) MatchByName(name string) *Unit {
 func (cfg *UnitSystem) RunningServicesCount() int {
 	count := 0
 	for _, unit := range cfg.units {
-		switch unit.driver.(type) {
-		case *ServiceUnit:
-			if unit.driver.status() == Running {
+		switch unit.v.(type) {
+		case *Unitv4Service:
+			if unit.v.status() == Running {
 				count++
 			}
 		}

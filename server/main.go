@@ -38,7 +38,7 @@ Use the browser back button to go to the server panel again.`, unitsys.MaxUnits)
 
 	if unit != nil {
 		modelLock.Lock()
-		unit.driver.start(ts)
+		unit.v.start(ts)
 		modelLock.Unlock()
 	}
 
@@ -71,22 +71,22 @@ func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 
 	if force {
 		// TODO somehow abstract this away in virtual methods?
-		switch unit.driver.(type) {
-		case *ServiceUnit:
-			d := unit.driver.(*ServiceUnit)
+		switch unit.v.(type) {
+		case *Unitv4Service:
+			d := unit.v.(*Unitv4Service)
 			if d.forceStopAllowed() {
 				d.forceStop(ts)
 				http.Redirect(w, req, "/", http.StatusFound)
 			} else {
 				http.Error(w, "force kill not allowed: not enough time has passed since stopping attempt", http.StatusBadRequest)
 			}
-		case *GroupUnit:
+		case *Unitv4Group:
 			http.Error(w, "force kill not allowed on target units", http.StatusBadRequest)
 		}
 		return
 	}
 
-	unit.driver.stop(ts)
+	unit.v.stop(ts)
 	http.Redirect(w, req, "/", http.StatusFound)
 }
 

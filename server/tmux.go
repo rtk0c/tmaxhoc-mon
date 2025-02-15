@@ -197,7 +197,7 @@ func (ts *TmuxSession) PollAndPrune() error {
 		}
 		ts.addProcess(proc)
 
-		fmt.Printf("polled proc group %%%d pid=%d '%s'", paneId, pid, windowName)
+		fmt.Printf("polled proc group %%%d pid=%d '%s'\n", paneId, pid, windowName)
 	}
 
 	return nil
