@@ -53,12 +53,14 @@ func apiStopUnit(w http.ResponseWriter, req *http.Request) {
 
 	force := false
 	forceOpt := req.FormValue("force")
-	if forceOpt == "true" {
+	switch forceOpt {
+	case "true":
 		force = true
-	} else if forceOpt == "" {
+	case "false":
+	case "":
 		force = false
-	} else {
-		http.Error(w, "invalid option: force='"+forceOpt+"', accepted '' or 'true'", http.StatusBadRequest)
+	default:
+		http.Error(w, "invalid option: force='"+forceOpt+"', accepted 'false', 'true', or omitted", http.StatusBadRequest)
 		return
 	}
 
