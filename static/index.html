@@ -1,0 +1,47 @@
+{{define "service_unit"}}
+<div class="unit {{.Class}}" {{.UserDefinedAttrs}}>
+  <p class="unit-name" title="{{.Tooltip}}">{{.Name}}</p>
+  {{if .IsStopped}}
+    <span class="marker marker-stopped">Stopped</span>
+    <form class="unit-action" method="post" action="/api/start-unit">
+      <input type="hidden" name="unit" value="{{.Name}}">
+      <input type="submit" value="Start">
+    </form>
+  {{else if .IsStopping}}
+    <span class="marker marker-stopping">Stopping</span>
+    {{if .ForceStopAllowed}}
+      <form class="unit-action" method="post" action="/api/stop-unit">
+        <input type="hidden" name="unit" value="{{.Name}}">
+        <input type="hidden" name="force" value="true">
+        <input type="submit" value="Force stop">
+      </form>
+    {{end}}
+  {{else if .IsRunning}}
+    <span class="marker marker-running">Running</span>
+    <form class="unit-action" method="post" action="/api/stop-unit">
+      <input type="hidden" name="unit" value="{{.Name}}">
+      <input type="submit" value="Stop">
+    </form>
+  {{end}}
+  {{if .IsGroup}}
+    <span class="c-space-around">subparts: {{.RunningSubparts}}/{{.TotalSubparts}}</span>
+  {{end}}
+  <div class="unit-desc">{{.Description}}</div>
+</div>
+{{end}}
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>tmaxhoc</title>
+  <link rel="stylesheet" href="/static/css/main.css" />
+  <script src="/static/js/main.js"></script>
+</head>
+<body>
+  <div id="unitsContainer">
+  {{range .Units}}
+    {{template "service_unit" .}}
+  {{end}}
+  </div>
+</body>
+</html>

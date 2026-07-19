@@ -1,9 +1,12 @@
 package main
 
 import (
-	"html/template"
 	"io"
+	"path/filepath"
+	"text/template"
 )
+
+var frontpage *template.Template
 
 type frontpageData struct {
 	Units []frontpageUnit
@@ -11,9 +14,8 @@ type frontpageData struct {
 
 type frontpageUnit struct {
 	Name             string
-	Description      template.HTML
-	Styles           template.CSS
-	HasStyles        bool
+	Description      string
+	UserDefinedAttrs string
 	Class            string
 	Tooltip          string
 	IsStopped        bool
@@ -25,53 +27,12 @@ type frontpageUnit struct {
 	TotalSubparts    int
 }
 
-var frontpageTemplate = template.Must(template.New("frontpage").Parse(`<!DOCTYPE html>
-<html>
-<head>
-	<title>tmaxhoc</title>
-	<link rel="stylesheet" href="/static/css/main.css" />
-	<script src="/static/js/main.js"></script>
-</head>
-<body>
-	<div id="unitsContainer">
-	{{range .Units}}
-		<div class="unit {{.Class}}"{{if .HasStyles}} style="{{.Styles}}"{{end}}>
-			<p class="unit-name" title="{{.Tooltip}}">{{.Name}}</p>
-			{{if .IsStopped}}
-				<span class="marker marker-stopped">Stopped</span>
-				<form class="unit-action" method="post" action="/api/start-unit">
-					<input type="hidden" name="unit" value="{{.Name}}">
-					<input type="submit" value="Start">
-				</form>
-			{{else if .IsStopping}}
-				<span class="marker marker-stopping">Stopping</span>
-				{{if .ForceStopAllowed}}
-					<form class="unit-action" method="post" action="/api/stop-unit">
-						<input type="hidden" name="unit" value="{{.Name}}">
-						<input type="hidden" name="force" value="true">
-						<input type="submit" value="Force stop">
-					</form>
-				{{end}}
-			{{else if .IsRunning}}
-				<span class="marker marker-running">Running</span>
-				<form class="unit-action" method="post" action="/api/stop-unit">
-					<input type="hidden" name="unit" value="{{.Name}}">
-					<input type="submit" value="Stop">
-				</form>
-			{{end}}
-			{{if .IsGroup}}
-				<span class="c-space-around">subparts: {{.RunningSubparts}}/{{.TotalSubparts}}</span>
-			{{end}}
-			<div class="unit-desc">{{.Description}}</div>
-		</div>
-	{{end}}
-	</div>
-</body>
-</html>
-`))
+func parseFrontpageTemplate(unitsys *UnitSystem) (*template.Template, error) {
+	return template.ParseFiles(filepath.Join(unitsys.StaticFilesDir, "index.html"))
+}
 
 func renderFrontpage(w io.Writer, unitsys *UnitSystem) error {
-	return frontpageTemplate.Execute(w, newFrontpageData(unitsys))
+	return frontpage.Execute(w, newFrontpageData(unitsys))
 }
 
 func newFrontpageData(unitsys *UnitSystem) frontpageData {
@@ -93,9 +54,8 @@ func newFrontpageUnit(unit *Unit) frontpageUnit {
 	status := unit.v.status()
 	view := frontpageUnit{
 		Name:             unit.Name,
-		Description:      template.HTML(unit.Description),
-		Styles:           template.CSS(unit.Styles),
-		HasStyles:        len(unit.Styles) > 0,
+		Description:      unit.Description,
+		UserDefinedAttrs: userDefinedAttributes(unit),
 		IsStopped:        status == Stopped,
 		IsStopping:       status == Stopping,
 		IsRunning:        status == Running,
@@ -115,4 +75,11 @@ func newFrontpageUnit(unit *Unit) frontpageUnit {
 	}
 
 	return view
+}
+
+func userDefinedAttributes(unit *Unit) string {
+	if len(unit.Styles) > 0 {
+		return `style="` + unit.Styles + `"`
+	}
+	return ""
 }

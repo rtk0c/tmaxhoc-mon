@@ -108,6 +108,11 @@ func main() {
 
 	unitsys.BindTmuxSession(ts)
 
+	frontpage, err = parseFrontpageTemplate(unitsys)
+	if err != nil {
+		panic(err)
+	}
+
 	// TODO event loop, and instead of tracking a "suspect dead list", don't store newly spawned processes at all,
 	//   but instead immediately queue a PollAndPrune() to detect the new proc group (and reset the timer)
 	//   this way incoming requests can also trigger a PollAndPrune() if necessary to keep visitors from waiting
