@@ -1,9 +1,6 @@
-//go:generate templ generate
-
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"net/http"
@@ -19,8 +16,9 @@ func httpHandler(w http.ResponseWriter, req *http.Request) {
 	modelLock.RLock()
 	defer modelLock.RUnlock()
 
-	component := compFrontpage(unitsys)
-	component.Render(context.Background(), w)
+	if err := renderFrontpage(w, unitsys); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func apiStartUnit(w http.ResponseWriter, req *http.Request) {

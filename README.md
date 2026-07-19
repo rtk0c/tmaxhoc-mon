@@ -8,7 +8,5 @@ See also my previous attempts at adhoc server generators, whose output can be mo
 - https://github.com/rtk0c/scripts/blob/master/mcman.py
 
 ## Building
-- Install templ cli tool: `go install github.com/a-h/templ/cmd/templ@latest`
 - In `server/`, run:
-  - `go generate`
   - `go build`

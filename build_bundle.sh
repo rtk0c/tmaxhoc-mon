@@ -4,8 +4,6 @@
 MYTEMPDIR=$(mktemp -d 2>/dev/null || mktemp -d -t 'mytmpdir')
 
 cd server
-go install github.com/a-h/templ/cmd/templ@latest
-go generate
 go build -o "$MYTEMPDIR/server"
 cd ..
 
